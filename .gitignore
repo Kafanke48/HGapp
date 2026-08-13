@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vite
+coverage
+*.tsbuildinfo
+
+# Nikoli ne commitaj Telegram tokena ali osebnih podatkov
+.env
+.env.*
+!.env.example
+backup-*.json
