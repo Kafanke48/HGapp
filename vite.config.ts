@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite'
+// defineConfig iz 'vitest/config', ne iz 'vite' — sicer polje `test` ni v tipu.
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
