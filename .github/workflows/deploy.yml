@@ -1,0 +1,51 @@
+name: Objava na GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+# Dovoljenja, ki jih potrebuje uradna Pages objava.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Sočasne objave se ne prekinjajo na pol poti — zadnja počaka, da prejšnja konča.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Testi so pogoj za objavo. Aplikacija racuna z resnicnim denarjem med
+      # prijatelji — pokvarjen obracun na telefonu je slabsi od neobjavljene
+      # nove razlicice, zato se ob padlem testu objava ustavi.
+      - run: npm test
+
+      - run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

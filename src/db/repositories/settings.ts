@@ -39,6 +39,20 @@ export async function getSettings(db: HGappDB): Promise<AppSettings> {
   })
 }
 
+/**
+ * Samo BRANJE nastavitev — ne ustvari vrstice, če je še ni.
+ *
+ * Obstaja ločeno od `getSettings`, ker Dexie znotraj `liveQuery` konteksta ne
+ * dovoli pisanja: `getSettings` ob prvem zagonu vrstico ustvari, kar v hooku
+ * vrže `ReadOnlyError` in sesuje zaslon v belo. Vsako branje v uporabniškem
+ * vmesniku mora zato skozi to funkcijo, pisanje pa se zgodi ob zagonu
+ * aplikacije, zunaj liveQuery.
+ */
+export async function readSettings(db: HGappDB): Promise<AppSettings> {
+  const existing = await db.settings.get(SINGLETON_ID)
+  return existing ? { ...DEFAULT_SETTINGS, ...existing } : { ...DEFAULT_SETTINGS }
+}
+
 export type UpdateSettingsInput = Partial<Omit<AppSettings, 'id'>>
 
 export async function updateSettings(db: HGappDB, patch: UpdateSettingsInput): Promise<AppSettings> {

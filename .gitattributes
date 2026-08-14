@@ -1,0 +1,7 @@
+# Enotni prelomi vrstic v repozitoriju, ne glede na to, s katerega sistema pride commit.
+* text=auto eol=lf
+
+# Binarne datoteke se ne normalizirajo — sicer se pokvarijo.
+*.png binary
+*.woff2 binary
+*.ico binary
