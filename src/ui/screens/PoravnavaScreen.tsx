@@ -94,12 +94,33 @@ export function PoravnavaScreen({ sessionId, onKoncano, onNazaj }: PoravnavaScre
   const [backupStatus, setBackupStatus] = useState<BackupStatus>('idle')
   const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle')
 
+  // Indeksi v result.transfers, ki jih je uporabnik v koraku potrjevanja
+  // označil kot "že plačano" — zanje finalizeSettlement NE ustvari OpenDebt.
+  // Privzeto prazen: direktni transfer praviloma pomeni kredo, ki bo poravnan
+  // kasneje, zato je odprt dolg pravilen privzeti izid (glej fix 1).
+  const [paidTransferIndexes, setPaidTransferIndexes] = useState<Set<number>>(new Set())
+
+  // Samo 'direktno' transferji lahko postanejo odprt dolg — 'iz_blagajne'
+  // nima plačnika (fromPlayerId je null), zato zanj toggle ne obstaja.
+  const directTransferEntries = useMemo(
+    () =>
+      (result?.transfers ?? [])
+        .map((transfer, index) => ({ transfer, index }))
+        .filter((entry) => entry.transfer.kind === 'direktno'),
+    [result],
+  )
+  const openDebtCount = directTransferEntries.length - paidTransferIndexes.size
+
   async function handleFinalize(): Promise<void> {
     if (!result) return
     setFinalizing(true)
     setFinalizeError(null)
     try {
-      await finalizeSettlement(db, sessionId, result, { discrepancy: discrepancyMethod, preferredCreditors })
+      await finalizeSettlement(db, sessionId, result, {
+        discrepancy: discrepancyMethod,
+        preferredCreditors,
+        immediatelyPaidTransferIndexes: [...paidTransferIndexes],
+      })
       clearDiscrepancyDraft(sessionId)
       setPhase('koncano')
     } catch (e) {
@@ -214,7 +235,13 @@ export function PoravnavaScreen({ sessionId, onKoncano, onNazaj }: PoravnavaScre
         <div className="border-line bg-surface safe-bottom sticky bottom-0 border-t px-5 pt-3 pb-3">
           <button
             type="button"
-            onClick={() => setPhase('potrjevanje')}
+            onClick={() => {
+              // Sveža izbira ob vsakem odprtju koraka potrjevanja — če je bil
+              // uporabnik prej v tem koraku in preklical, se ne vlečejo stare
+              // (morda zdaj neveljavne) oznake "že plačano".
+              setPaidTransferIndexes(new Set())
+              setPhase('potrjevanje')
+            }}
             className="bg-bone text-night min-h-11 w-full rounded-lg py-3 font-semibold"
           >
             Potrdi in zapri sejo
@@ -227,10 +254,49 @@ export function PoravnavaScreen({ sessionId, onKoncano, onNazaj }: PoravnavaScre
           <div className="bg-surface safe-bottom w-full rounded-t-2xl p-5">
             <h2 className="text-bone text-lg font-semibold">Potrdi poravnavo</h2>
             <p className="text-bone-dim mt-2 text-sm">
-              To bo zapisalo {result.transfers.length}{' '}
-              {result.transfers.length === 1 ? 'vrstico' : 'vrstic'} poravnalnega načrta, za neplačane vrstice
-              ustvarilo odprte dolgove, in sejo prestavilo v stanje "poravnana". Tega dejanja ni mogoče razveljaviti.
+              To bo zapisalo {result.transfers.length} {sklonVrsticeTozilnik(result.transfers.length)}{' '}
+              poravnalnega načrta in sejo prestavilo v stanje "poravnana". Tega dejanja ni mogoče
+              razveljaviti.
             </p>
+
+            {directTransferEntries.length > 0 && (
+              <div className="mt-4">
+                <p className="eyebrow">Direktna nakazila</p>
+                <p className="text-bone-dim mt-1 text-xs">
+                  Če je denar že zamenjal roke, označi "že plačano" — sicer postavka postane odprt dolg.
+                </p>
+                <div className="mt-2 flex max-h-56 flex-col gap-2 overflow-y-auto">
+                  {directTransferEntries.map(({ transfer, index }) => (
+                    <label
+                      key={index}
+                      className="border-line flex min-h-11 items-center gap-3 rounded-lg border px-3 py-2"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={paidTransferIndexes.has(index)}
+                        onChange={(e) => {
+                          setPaidTransferIndexes((prev) => {
+                            const next = new Set(prev)
+                            if (e.target.checked) next.add(index)
+                            else next.delete(index)
+                            return next
+                          })
+                        }}
+                        className="accent-bone size-5 flex-none"
+                        aria-label={`${nameOf(transfer.fromPlayerId)} nakaže ${nameOf(transfer.toPlayerId)} — že plačano`}
+                      />
+                      <span className="text-bone-dim flex-1 text-sm">
+                        {nameOf(transfer.fromPlayerId)} → {nameOf(transfer.toPlayerId)} ·{' '}
+                        {formatEur(transfer.amountCents)}
+                      </span>
+                      <span className="text-bone text-xs font-medium">že plačano</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-bone-dim mt-2 text-xs">{describeOpenDebtCount(openDebtCount)}</p>
+              </div>
+            )}
+
             <div className="mt-4 flex gap-2">
               <button
                 type="button"
@@ -495,7 +561,8 @@ function KoncanoView({ result, backupStatus, onBackup, summaryText, copyStatus, 
       <div>
         <p className="text-jade text-lg font-semibold">Seja je poravnana.</p>
         <p className="text-bone-dim mt-1 text-sm">
-          Zapisanih je {result.transfers.length} {result.transfers.length === 1 ? 'vrstica' : 'vrstic'} načrta.
+          Zapisanih je {result.transfers.length} {sklonVrsticeImenovalnik(result.transfers.length)}{' '}
+          načrta.
           Neplačane vrstice so zdaj odprti dolgovi.
         </p>
       </div>
@@ -544,6 +611,43 @@ function KoncanoView({ result, backupStatus, onBackup, summaryText, copyStatus, 
       </button>
     </div>
   )
+}
+
+/**
+ * Slovenska dvojina za "vrstica".
+ *
+ * Preprosta delitev na ena/več tu ne zadošča: "3 vrstic" je napačno, pravilno
+ * je "3 vrstice". Napačen sklon takoj izda, da je besedilo strojno sestavljeno.
+ */
+function sklonVrsticeImenovalnik(n: number): string {
+  const r = n % 100
+  if (r === 1) return 'vrstica'
+  if (r === 2) return 'vrstici'
+  if (r === 3 || r === 4) return 'vrstice'
+  return 'vrstic'
+}
+
+/** Isti sklon v tožilniku: "To bo zapisalo 3 vrstice". */
+function sklonVrsticeTozilnik(n: number): string {
+  const r = n % 100
+  if (r === 1) return 'vrstico'
+  if (r === 2) return 'vrstici'
+  if (r === 3 || r === 4) return 'vrstice'
+  return 'vrstic'
+}
+
+/**
+ * Slovenska dvojina za "postavka" glede na to, koliko direktnih transferjev
+ * bo (po odbitku "že plačano") ostalo kot odprt dolg. Isti vzorec kot
+ * sklonIgralci/sklonBuyIn v BlagajnaStrip — n % 100 določa obliko.
+ */
+function describeOpenDebtCount(n: number): string {
+  if (n === 0) return 'Nobena postavka ne bo ostala med odprtimi dolgovi.'
+  const r = n % 100
+  if (r === 1) return `${n} postavka bo ostala med odprtimi dolgovi.`
+  if (r === 2) return `${n} postavki bosta ostali med odprtimi dolgovi.`
+  if (r === 3 || r === 4) return `${n} postavke bodo ostale med odprtimi dolgovi.`
+  return `${n} postavk bo ostalo med odprtimi dolgovi.`
 }
 
 function buildSummaryText(result: SettlementResult, nameOf: (id: string | null) => string): string {

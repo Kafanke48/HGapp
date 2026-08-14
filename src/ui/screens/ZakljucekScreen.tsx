@@ -209,7 +209,19 @@ export function ZakljucekScreen({ sessionId, onNaprej, onNazaj }: ZakljucekScree
         </div>
 
         {diff === 0 ? (
-          <p className="text-jade mt-1.5 text-sm font-medium">Blagajna se izide.</p>
+          // "Blagajna" pomeni izključno gotovinsko blagajno (Σ P) — ta
+          // primerjava je Σ žetonov vs Σ buy-inov, torej gre za žetone, ne
+          // blagajno (glej fix 3 v pregledu UI in specifikacijo, razdelek 3.1).
+          <p className="text-jade mt-1.5 text-sm font-medium">Žetoni se izidejo.</p>
+        ) : !allComplete ? (
+          // Dokler niso vpisani vsi cashouti, je razlika trivialno enaka
+          // celotnemu seštevku seje in bi alarm samo naučil uporabnika, naj ga
+          // med tipkanjem ignorira (glej fix 2 v pregledu UI). Zato nevtralen
+          // napredek namesto rdečega opozorila in gumba za razrešitev.
+          <p className="text-bone-dim mt-1.5 text-sm">
+            Vpisano {sortedPlayers.filter((sp) => perPlayerCents.get(sp.id) !== null).length} od{' '}
+            {sortedPlayers.length}
+          </p>
         ) : (
           <div className="border-oxblood bg-oxblood/10 mt-2 rounded-lg border p-3">
             <p className="text-oxblood text-sm font-semibold">

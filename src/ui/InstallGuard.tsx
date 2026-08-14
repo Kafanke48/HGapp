@@ -40,7 +40,9 @@ export function InstallGuard({ onAcknowledge }: InstallGuardProps) {
             ['Odpri HGapp z ikone', 'Od zdaj naprej vedno od tam, ne iz Safarija.'],
           ].map(([title, detail], i) => (
             <li key={i} className="flex gap-3">
-              <span className="num text-brass mt-0.5 text-sm tabular-nums">{i + 1}</span>
+              {/* Medenina je rezervirana za blagajno — zaporedne številke tu
+                  uporabljajo bone-dim, ne medenino (glej fix 4 v pregledu UI). */}
+              <span className="num text-bone-dim mt-0.5 text-sm tabular-nums">{i + 1}</span>
               <span>
                 <span className="text-bone block text-[0.9375rem] font-medium">{title}</span>
                 <span className="text-bone-dim block text-[0.8125rem]">{detail}</span>
@@ -61,7 +63,7 @@ export function InstallGuard({ onAcknowledge }: InstallGuardProps) {
             type="checkbox"
             checked={confirmed}
             onChange={(e) => setConfirmed(e.target.checked)}
-            className="accent-brass mt-0.5 size-5 flex-none"
+            className="accent-bone mt-0.5 size-5 flex-none"
           />
           <span className="text-bone-dim text-[0.875rem]">
             Razumem. Aplikacijo bom odpiral z začetnega zaslona.
@@ -72,7 +74,7 @@ export function InstallGuard({ onAcknowledge }: InstallGuardProps) {
           type="button"
           disabled={!confirmed}
           onClick={onAcknowledge}
-          className="bg-brass text-night mt-5 rounded-xl px-5 py-3.5 text-[0.9375rem] font-semibold disabled:opacity-30"
+          className="bg-bone text-night mt-5 rounded-xl px-5 py-3.5 text-[0.9375rem] font-semibold disabled:opacity-30"
         >
           Nadaljuj
         </button>

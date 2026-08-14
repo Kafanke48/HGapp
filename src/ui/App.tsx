@@ -85,6 +85,12 @@ export function App() {
               setSessionId(id)
               setView('aktivna')
             }}
+            onPoravnaj={(id) => {
+              // Vedno najprej na vpis končnega stanja: če je že vpisano, se
+              // vrednosti prikažejo in gumb "Naprej" je takoj na voljo.
+              setSessionId(id)
+              setView('zakljucek')
+            }}
           />
         )}
 
@@ -110,7 +116,9 @@ export function App() {
           <ZakljucekScreen
             sessionId={sessionId}
             onNaprej={() => setView('poravnava')}
-            onNazaj={() => setView('aktivna')}
+            // Nazaj gre na seznam, ne na aktivno sejo: ta je že zaključena in
+            // buy-inov vanjo ni več mogoče beležiti.
+            onNazaj={() => setView('seje')}
           />
         )}
 

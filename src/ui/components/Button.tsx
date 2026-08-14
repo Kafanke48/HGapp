@@ -12,8 +12,11 @@ interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'cla
 }
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  // Medenina je rezervirana za blagajno IN natanko en gumb v celi aplikaciji.
-  primary: 'bg-brass text-night',
+  // Medenina je rezervirana IZKLJUČNO za blagajnino številko (BlagajnaStrip
+  // in cifra v PoravnavaScreen) — zato tudi "primary" gumb uporablja kost
+  // (bone), sicer bi velike medeninaste površine na navadnih gumbih
+  // tekmovale z blagajno za pozornost (glej fix 4 v pregledu UI).
+  primary: 'bg-bone text-night',
   default: 'bg-raised text-bone border border-line',
   danger: 'bg-surface text-oxblood border border-oxblood/50',
   ghost: 'text-bone-dim',
@@ -29,9 +32,9 @@ const SIZE_CLASSES: Record<ButtonSize, string> = {
 /**
  * Edini gumb v aplikaciji.
  *
- * `variant="primary"` (medenina) sme biti uporabljen SAMO na enem mestu v celi
- * aplikaciji — na "Nova seja" v SejeScreen. Glej oblikovna pravila: zadržanost
- * pri medenini je bistvo palete, zato je ne uporabljaj nikjer drugje.
+ * Noben variant tega gumba ne uporablja medenine — ta je rezervirana
+ * izključno za blagajnino številko. `variant="primary"` je zato kost (bone),
+ * enako opazna, a brez tekmovanja z blagajno za pozornost.
  */
 export function Button({
   variant = 'default',

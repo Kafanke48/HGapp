@@ -61,7 +61,7 @@ export class ErrorBoundary extends Component<Props, State> {
             this.setState({ error: null })
             this.props.onReset()
           }}
-          className="bg-brass text-night mt-5 rounded-xl px-5 py-3.5 text-[0.9375rem] font-semibold"
+          className="bg-bone text-night mt-5 rounded-xl px-5 py-3.5 text-[0.9375rem] font-semibold"
         >
           Nazaj na seje
         </button>

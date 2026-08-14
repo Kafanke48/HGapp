@@ -6,6 +6,8 @@ import { EmptyState } from '../components/EmptyState.tsx'
 interface SejeScreenProps {
   onNovaSeja: () => void
   onNadaljuj: (sessionId: string) => void
+  /** Odpre zaključeno, a še ne poravnano sejo — nadaljuje pri vpisu končnega stanja. */
+  onPoravnaj: (sessionId: string) => void
 }
 
 const STATUS_LABELS: Record<SessionStatus, string> = {
@@ -40,13 +42,21 @@ function sessionSubtitle(session: Session): string {
  * Domov: seznam sej. Aktivna seja (če obstaja) je pripeta na vrh z "Nadaljuj",
  * ker je to edino dejanje, ki ga uporabnik med igro dejansko potrebuje odtod.
  */
-export function SejeScreen({ onNovaSeja, onNadaljuj }: SejeScreenProps) {
+export function SejeScreen({ onNovaSeja, onNadaljuj, onPoravnaj }: SejeScreenProps) {
   const overview = useSessionsOverview()
 
   if (overview === undefined) return null
 
   const aktivna = overview.find((o) => o.session.status === 'aktivna')
-  const rest = overview.filter((o) => o.session.id !== aktivna?.session.id)
+
+  // Zaključena, a še ne poravnana seja je nedokončan posel in mora biti enako
+  // vidna kot aktivna. Med štetjem žetonov se aplikacija skoraj vedno zapre —
+  // če takšna seja ne bi imela poti nazaj, bi podatki obtičali brez poravnave.
+  const zaPoravnavo = overview.filter((o) => o.session.status === 'zakljucena')
+
+  const rest = overview.filter(
+    (o) => o.session.id !== aktivna?.session.id && o.session.status !== 'zakljucena',
+  )
 
   return (
     <div className="flex min-h-full flex-col px-5 pt-2 pb-6">
@@ -77,17 +87,41 @@ export function SejeScreen({ onNovaSeja, onNadaljuj }: SejeScreenProps) {
         </section>
       )}
 
+      {zaPoravnavo.length > 0 && (
+        <section className="mt-5">
+          <p className="eyebrow text-oxblood">Čaka na poravnavo</p>
+          <ul className="mt-2 space-y-2">
+            {zaPoravnavo.map(({ session, playerCount }) => (
+              <li key={session.id} className="tile flex flex-col gap-3 p-4">
+                <div>
+                  <p className="text-bone text-base font-semibold">
+                    {session.name ?? 'Seja brez imena'}
+                  </p>
+                  <p className="text-bone-dim mt-0.5 text-[0.8125rem]">
+                    {formatDate(session.startedAt ?? session.scheduledAt)} · {sessionSubtitle(session)}{' '}
+                    · {playerCount} {sklonIgralci(playerCount)}
+                  </p>
+                </div>
+                <Button fullWidth onClick={() => onPoravnaj(session.id)}>
+                  Poravnaj
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="mt-6 flex-1">
         <p className="eyebrow">Pretekle seje</p>
 
-        {rest.length === 0 && !aktivna && (
+        {rest.length === 0 && !aktivna && zaPoravnavo.length === 0 && (
           <EmptyState
             title="Še ni nobene seje"
             description="Ustvari prvo sejo zgoraj — od tam v paru tapov dodaš igralce in začneš."
           />
         )}
 
-        {rest.length === 0 && aktivna && (
+        {rest.length === 0 && (aktivna || zaPoravnavo.length > 0) && (
           <p className="text-bone-faint mt-3 text-sm">Ni preteklih sej.</p>
         )}
 
