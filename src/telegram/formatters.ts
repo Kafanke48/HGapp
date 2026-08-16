@@ -6,7 +6,7 @@
  * Sporočila so namerno kratka — pristanejo kot obvestilo na telefonu.
  */
 import { formatEur, formatEurSigned, type Cents } from '../domain/money.ts'
-import type { PaymentMethod } from '../db/types.ts'
+import type { BuyInKind, PaymentMethod } from '../db/types.ts'
 
 /**
  * Slovenščina loči ednino/dvojino/(tro/štiri)množino/množino po ostanku pri
@@ -25,6 +25,13 @@ const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
   gotovina: 'gotovina',
   nakazilo: 'nakazilo',
   kredo: 'kredo',
+}
+
+/** Pokerski izrazi ostanejo v angleščini (glej pravila copyja). */
+const BUY_IN_KIND_LABEL: Record<BuyInKind, string> = {
+  buyin: 'buy-in',
+  rebuy: 'rebuy',
+  addon: 'add-on',
 }
 
 /** Obvestilo v skupino ob začetku seje. */
@@ -107,4 +114,25 @@ export function formatOpenDebtReminder(debts: readonly OpenDebtRow[]): string {
 /** Zasebno potrditveno vprašanje ob buy-inu (glej spec 7.5). Gumbi se dodajo v `confirmations.ts`. */
 export function formatBuyInConfirmationPrompt(amountCents: Cents, paymentMethod: PaymentMethod): string {
   return `Zabeležen je tvoj buy-in ${formatEur(amountCents)} (${PAYMENT_METHOD_LABEL[paymentMethod]}). Potrdi?`
+}
+
+/**
+ * Objava buy-ina v SKUPINO (ne zasebno — to je `formatBuyInConfirmationPrompt`).
+ * Lastnikova izrecna zahteva po realni rabi: prej je buy-in proizvedel samo
+ * zasebno DM potrditev igralcu, skupina pa ni izvedela nič.
+ *
+ * Ista funkcija pokriva tako nov buy-in kot njegov preklic/popravek (`action`),
+ * da ostane ena sama nova formatirna funkcija v tej datoteki (glej obseg
+ * naloge) — klicatelj izbere ustrezen `dedupKey`, izpeljan iz ID-ja buy-ina,
+ * da se isto stanje nikoli ne objavi dvakrat.
+ */
+export function formatBuyInPosted(
+  action: 'zabelezen' | 'preklican',
+  playerName: string,
+  kind: BuyInKind,
+  amountCents: Cents,
+  paymentMethod: PaymentMethod,
+): string {
+  const base = `${playerName}: ${BUY_IN_KIND_LABEL[kind]} ${formatEur(amountCents)} (${PAYMENT_METHOD_LABEL[paymentMethod]})`
+  return action === 'preklican' ? `${base} — preklican` : base
 }

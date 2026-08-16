@@ -6,6 +6,7 @@ import { acquireWakeLock, releaseWakeLock } from '../../platform/index.ts'
 import {
   enqueue,
   enqueueConfirmationPrompt,
+  formatBuyInPosted,
   formatCurrentStandings,
   formatSessionStarted,
   type StandingRow,
@@ -19,6 +20,7 @@ import { useTelegramStatus } from '../hooks/useTelegramStatus.ts'
 import { BlagajnaStrip } from '../components/BlagajnaStrip.tsx'
 import { PlayerTile, type TilePip } from '../components/PlayerTile.tsx'
 import { BuyInSheet, type BuyInSubmission } from '../components/BuyInSheet.tsx'
+import { IgralecSheet } from '../components/IgralecSheet.tsx'
 import { Sheet } from '../components/Sheet.tsx'
 import { Button } from '../components/Button.tsx'
 
@@ -54,8 +56,9 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
 
   const [elapsedNow, setElapsedNow] = useState(() => Date.now())
   const [sheetPlayer, setSheetPlayer] = useState<Player | null>(null)
+  const [detailPlayer, setDetailPlayer] = useState<Player | null>(null)
   const [confirmingEnd, setConfirmingEnd] = useState(false)
-  const [pendingUndo, setPendingUndo] = useState<{ buyInId: string; playerName: string } | null>(null)
+  const [pendingUndo, setPendingUndo] = useState<{ buyIn: BuyIn; playerName: string } | null>(null)
   const undoTimer = useRef<number | null>(null)
 
   // Zaslon ne sme zaspati sredi igre (spec 6.1) — pridobi ob priklopu, sprosti ob odklopu.
@@ -97,9 +100,9 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
     })
   }, [session, settings])
 
-  function showUndo(buyInId: string, playerName: string) {
+  function showUndo(buyIn: BuyIn, playerName: string) {
     if (undoTimer.current !== null) window.clearTimeout(undoTimer.current)
-    setPendingUndo({ buyInId, playerName })
+    setPendingUndo({ buyIn, playerName })
     undoTimer.current = window.setTimeout(() => setPendingUndo(null), UNDO_WINDOW_MS)
   }
 
@@ -112,6 +115,29 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
     })
   }
 
+  // Objava v SKUPINO ob vsakem buy-inu (in njegovem preklicu/popravku) —
+  // lastnikova izrecna zahteva po realni rabi (prej je skupina ostala brez
+  // vsakršnega obvestila). Fire-and-forget kot zgoraj: nikoli ne sme
+  // upočasniti beleženja, brez skupine (settings.telegramGroupChatId manjka)
+  // je to normalno stanje, ne napaka. Ključ IZHAJA iz ID-ja buy-ina, zato
+  // ponovno odprtje zaslona ali podvojen klic nikoli ne podvoji sporočila.
+  function firePostedToGroup(action: 'zabelezen' | 'preklican', playerName: string, buyIn: BuyIn) {
+    if (!settings?.telegramGroupChatId) return
+    const dedupKey = action === 'zabelezen' ? `buyin-posted:${buyIn.id}` : `buyin-voided:${buyIn.id}`
+    void enqueue(db, {
+      dedupKey,
+      method: 'sendMessage',
+      params: {
+        chat_id: settings.telegramGroupChatId,
+        text: formatBuyInPosted(action, playerName, buyIn.kind, buyIn.amountCents, buyIn.paymentMethod),
+      },
+      relatedTable: 'buyIns',
+      relatedId: buyIn.id,
+    }).catch((err: unknown) => {
+      console.warn('Telegram: objava buy-ina v skupino ni bila dodana v vrsto', err)
+    })
+  }
+
   async function handleQuickBuyIn(player: Player) {
     if (!session) return
     const buyIn = await createBuyIn(db, {
@@ -120,14 +146,16 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
       amountCents: session.defaultBuyInCents,
       paymentMethod: 'gotovina',
     })
-    showUndo(buyIn.id, player.name)
+    showUndo(buyIn, player.name)
     fireConfirmationPrompt(player, buyIn)
+    firePostedToGroup('zabelezen', player.name, buyIn)
   }
 
   async function handleUndo() {
     if (!pendingUndo) return
     if (undoTimer.current !== null) window.clearTimeout(undoTimer.current)
-    await voidBuyIn(db, pendingUndo.buyInId)
+    const voided = await voidBuyIn(db, pendingUndo.buyIn.id)
+    firePostedToGroup('preklican', pendingUndo.playerName, voided)
     setPendingUndo(null)
   }
 
@@ -142,6 +170,7 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
       note: input.note,
     })
     fireConfirmationPrompt(sheetPlayer, buyIn)
+    firePostedToGroup('zabelezen', sheetPlayer.name, buyIn)
     setSheetPlayer(null)
   }
 
@@ -239,16 +268,27 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
         {rows.map(({ sessionPlayer, player }) => {
           const perPlayer = totals.perPlayer[player.id] ?? { takenCents: 0, paidCents: 0 }
           return (
-            <PlayerTile
-              key={sessionPlayer.id}
-              name={player.name}
-              takenCents={perPlayer.takenCents}
-              paidCents={perPlayer.paidCents}
-              pips={pipsByPlayer.get(player.id) ?? []}
-              defaultBuyInCents={session.defaultBuyInCents}
-              onQuickBuyIn={() => void handleQuickBuyIn(player)}
-              onOpenDetail={() => setSheetPlayer(player)}
-            />
+            <div key={sessionPlayer.id} className="relative">
+              <PlayerTile
+                name={player.name}
+                takenCents={perPlayer.takenCents}
+                paidCents={perPlayer.paidCents}
+                pips={pipsByPlayer.get(player.id) ?? []}
+                defaultBuyInCents={session.defaultBuyInCents}
+                onQuickBuyIn={() => void handleQuickBuyIn(player)}
+                onOpenDetail={() => setSheetPlayer(player)}
+              />
+              {/* Prekriva samo zgornji del ploščice (ime/znesek), NE spodnje vrstice
+                  dveh gumbov (bottom-14 = mt-3 + min-h-11 gumba) — ta dva morata
+                  ostati NESPREMENJENA (glej nalogo). PlayerTile.tsx zato ni bilo
+                  treba spreminjati: ta prekrivni gumb je sosed, ne starš, gumbov. */}
+              <button
+                type="button"
+                onClick={() => setDetailPlayer(player)}
+                aria-label={`${player.name}: uredi buy-ine te seje`}
+                className="absolute inset-x-0 top-0 bottom-14"
+              />
+            </div>
           )
         })}
       </div>
@@ -276,6 +316,15 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
         defaultAmountCents={session.defaultBuyInCents}
         onClose={() => setSheetPlayer(null)}
         onSubmit={(input) => void handleBuyInSubmit(input)}
+      />
+
+      <IgralecSheet
+        open={detailPlayer !== null}
+        sessionId={session.id}
+        player={detailPlayer}
+        buyIns={buyIns ?? []}
+        groupChatId={settings?.telegramGroupChatId ?? null}
+        onClose={() => setDetailPlayer(null)}
       />
 
       <Sheet open={confirmingEnd} onClose={() => setConfirmingEnd(false)} title="Zaključi sejo?">

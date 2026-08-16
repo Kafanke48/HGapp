@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   formatBuyInConfirmationPrompt,
+  formatBuyInPosted,
   formatCurrentStandings,
   formatFinalStandings,
   formatOpenDebtReminder,
@@ -10,6 +11,28 @@ import {
 describe('formatters', () => {
   it('formatBuyInConfirmationPrompt matches the exact wording from the spec', () => {
     expect(formatBuyInConfirmationPrompt(2000, 'gotovina')).toBe('Zabeležen je tvoj buy-in 20,00 € (gotovina). Potrdi?')
+  })
+
+  it('formatBuyInPosted announces a recorded buy-in to the group', () => {
+    expect(formatBuyInPosted('zabelezen', 'Miha', 'buyin', 2000, 'gotovina')).toBe(
+      'Miha: buy-in 20,00 € (gotovina)',
+    )
+  })
+
+  it('formatBuyInPosted uses the correct English poker term per kind', () => {
+    expect(formatBuyInPosted('zabelezen', 'Ana', 'rebuy', 1500, 'nakazilo')).toBe(
+      'Ana: rebuy 15,00 € (nakazilo)',
+    )
+    expect(formatBuyInPosted('zabelezen', 'Bine', 'addon', 1000, 'kredo')).toBe(
+      'Bine: add-on 10,00 € (kredo)',
+    )
+  })
+
+  it('formatBuyInPosted marks a voided/corrected buy-in distinctly, so the group is never left with a stale message', () => {
+    const posted = formatBuyInPosted('zabelezen', 'Miha', 'buyin', 2000, 'gotovina')
+    const voided = formatBuyInPosted('preklican', 'Miha', 'buyin', 2000, 'gotovina')
+    expect(voided).not.toBe(posted)
+    expect(voided).toBe('Miha: buy-in 20,00 € (gotovina) — preklican')
   })
 
   it('formatSessionStarted includes name and location when present', () => {
