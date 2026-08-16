@@ -10,6 +10,7 @@ import { AktivnaSejaScreen } from './screens/AktivnaSejaScreen.tsx'
 import { IgralciScreen } from './screens/IgralciScreen.tsx'
 import { DolgoviScreen } from './screens/DolgoviScreen.tsx'
 import { NastavitveScreen } from './screens/NastavitveScreen.tsx'
+import { ZgodovinaScreen } from './screens/ZgodovinaScreen.tsx'
 import { useTelegramRuntime } from './hooks/useTelegramRuntime.ts'
 import { ZakljucekScreen } from './screens/ZakljucekScreen.tsx'
 import { PoravnavaScreen } from './screens/PoravnavaScreen.tsx'
@@ -22,6 +23,7 @@ export type View =
   | 'poravnava'
   | 'igralci'
   | 'dolgovi'
+  | 'zgodovina'
   | 'nastavitve'
 
 /** Med temi pogledi je tabvrstica skrita — so osredotočeni, celozaslonski tokovi (glej spec 6). */
@@ -153,6 +155,8 @@ export function App() {
 
         {view === 'dolgovi' && <DolgoviScreen />}
 
+        {view === 'zgodovina' && <ZgodovinaScreen />}
+
         {view === 'nastavitve' && <NastavitveScreen />}
         </ErrorBoundary>
       </main>
@@ -162,11 +166,14 @@ export function App() {
   )
 }
 
+// Pet zavihkov je na 375px zaslonu zgornja meja — "Nastavitve" je zato skrajšano
+// na "Nastav.", da se oznake ne prelomijo v dve vrstici.
 const TABS: { view: View; label: string }[] = [
   { view: 'seje', label: 'Seje' },
+  { view: 'zgodovina', label: 'Zgodovina' },
   { view: 'dolgovi', label: 'Dolgovi' },
   { view: 'igralci', label: 'Igralci' },
-  { view: 'nastavitve', label: 'Nastavitve' },
+  { view: 'nastavitve', label: 'Nastav.' },
 ]
 
 function TabBar({ view, onChange }: { view: View; onChange: (v: View) => void }) {
@@ -179,7 +186,9 @@ function TabBar({ view, onChange }: { view: View; onChange: (v: View) => void })
               type="button"
               onClick={() => onChange(tab.view)}
               aria-current={view === tab.view ? 'page' : undefined}
-              className={`w-full rounded-lg py-2 text-[0.75rem] font-medium ${
+              // min-h-11 = 44px: pod tem je zadetek s palcem nezanesljiv,
+              // še posebej v spodnji vrstici tik ob robu zaslona.
+              className={`min-h-11 w-full rounded-lg py-2 text-[0.75rem] font-medium ${
                 view === tab.view ? 'text-bone' : 'text-bone-faint'
               }`}
             >

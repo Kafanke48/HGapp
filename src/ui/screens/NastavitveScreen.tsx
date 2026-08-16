@@ -212,12 +212,45 @@ export function NastavitveScreen() {
     <div className="safe-top safe-bottom flex min-h-full flex-col gap-6 px-5 pb-8">
       <header className="pt-2">
         <p className="eyebrow">Nastavitve</p>
-        <h1 className="text-bone text-xl font-semibold">Telegram</h1>
+        <h1 className="text-bone text-xl font-semibold">Nastavitve</h1>
       </header>
+
+      {/* ----------------------------------------------------------------
+          Brez te nastavitve zgodovina ne more prikazati "moj skupni izid" —
+          aplikacija ne ve, kateri od igralcev je lastnik telefona. Privzeto
+          ni ugibanja: dokler ni izbran, se ploščica ne prikaže. */}
+      <section className="flex flex-col gap-3">
+        <p className="eyebrow">Kdo sem jaz</p>
+        <p className="text-bone-dim text-[0.8125rem] leading-relaxed">
+          Izberi svoje ime med igralci. Po tem ti zgodovina pokaže tvoj skupni izid, blagajno pa vodiš
+          še naprej ne glede na izbiro.
+        </p>
+        {players !== undefined && players.length === 0 && (
+          <p className="text-bone-faint text-[0.8125rem]">Najprej dodaj igralce na zavihku Igralci.</p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {(players ?? []).map((p) => {
+            const selected = settings?.hostPlayerId === p.id
+            return (
+              <button
+                key={p.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => void updateSettings(db, { hostPlayerId: selected ? null : p.id })}
+                className={`min-h-11 rounded-lg px-3.5 text-[0.875rem] font-medium ${
+                  selected ? 'bg-bone text-night' : 'border-line text-bone-dim border'
+                }`}
+              >
+                {p.name}
+              </button>
+            )
+          })}
+        </div>
+      </section>
 
       {/* ---------------------------------------------------------------- */}
       <section className="flex flex-col gap-3">
-        <p className="eyebrow">Bot</p>
+        <p className="eyebrow">Telegram bot</p>
         <p className="text-bone-dim text-[0.8125rem] leading-relaxed">
           Bot pošilja obvestila v skupino in zasebno potrjuje buy-ine. Vse odhodne pošiljke gredo najprej v
           vrsto na tem telefonu in počakajo na povezavo — nič se ne izgubi, če si offline.
