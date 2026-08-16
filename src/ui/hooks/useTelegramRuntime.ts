@@ -23,9 +23,16 @@ export interface TelegramRuntimeStatus {
 const DRAIN_INTERVAL_MS = 20_000
 
 /**
- * Ali sta žeton in ID skupine nastavljena — bere se živo, da se runtime
- * samodejno vklopi takoj, ko uporabnik v NastavitveScreen shrani obe polji,
- * brez potrebe po ponovnem zagonu aplikacije.
+ * Ali je nastavljen ŽETON — to je edini pogoj, da pogon teče.
+ *
+ * Prej se je zahteval tudi ID skupine, kar je bila napaka: zasebna potrditev
+ * buy-ina nima nobene zveze s skupino. Kdor je vpisal samo žeton, je lahko
+ * igralce celo uspešno povezal (povezovanje kliče Telegram neposredno in
+ * potrebuje le žeton), njegova zasebna sporočila pa so obtičala v vrsti in
+ * niso bila nikoli poslana — brez vsakega opozorila.
+ *
+ * ID skupine je pogoj samo za sporočila V SKUPINO; to preverja vsak klicatelj
+ * posebej tam, kjer skupino dejansko potrebuje.
  *
  * Uporablja `readSettings` (branje), nikoli `getSettings` — glej opozorilo v
  * `db/repositories/settings.ts`, ta napaka je že enkrat obelila zaslon.
@@ -34,7 +41,7 @@ function useTelegramConfigured(): boolean {
   return useLiveQuery(
     async () => {
       const settings = await readSettings(db)
-      return Boolean(settings.telegramBotToken && settings.telegramGroupChatId)
+      return Boolean(settings.telegramBotToken)
     },
     [],
     false,
@@ -104,11 +111,19 @@ export function useTelegramRuntime(activeSessionId: string | null): TelegramRunt
     }
   }, [configured, activeSessionId])
 
-  // Poslušanje odgovorov: SAMO dokler je dokument viden IN je seja aktivna
-  // (glej spec 7.6/7.7 — iOS ustavi JS kmalu po odhodu aplikacije v ozadje,
-  // zanesljivega poslušanja v ozadju zato ni in ga ne smemo hliniti).
+  // Poslušanje odgovorov teče, dokler je dokument viden in je bot nastavljen.
+  //
+  // Prej je bilo vezano tudi na aktivno sejo — to je bila napaka. Bot tako ni
+  // slišal ničesar, razen dokler si gledal zaslon aktivne seje: ukaz `/stanje`
+  // ni nikoli prišel do njega, povezovanje igralcev pa tudi ne. Celo odgovor
+  // "Trenutno ni aktivne seje." je bil nedosegljiv, ker brez seje ni bilo
+  // poslušalca, ki bi ukaz sprejel.
+  //
+  // Omejitev iz spec 7.7 ostaja in je resnična: iOS ustavi izvajanje kmalu po
+  // odhodu v ozadje, zato poslušamo samo, dokler je aplikacija odprta. Tega ne
+  // hlinimo — le ne omejujemo še bolj, kot je treba.
   useEffect(() => {
-    if (!configured || activeSessionId === null) {
+    if (!configured) {
       setPolling(false)
       return
     }

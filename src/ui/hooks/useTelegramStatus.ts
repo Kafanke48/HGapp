@@ -3,15 +3,22 @@ import { db } from '../../db/schema.ts'
 import { readSettings } from '../../db/repositories/index.ts'
 
 export interface TelegramStatusInfo {
-  /** Sta žeton IN ID skupine nastavljena — brez obeh Telegram sloj počiva. */
+  /** Je nastavljen žeton — edini pogoj, da Telegram sloj sploh teče. */
   configured: boolean
+  /** Je nastavljen ID skupine — pogoj samo za sporočila v skupino. */
+  groupConfigured: boolean
   /** Koliko sporočil čaka na pošiljanje (stanje 'caka'). */
   pendingCount: number
   /** Koliko sporočil je trajno obupalo (stanje 'napaka') — vidno, ne tiho izgubljeno. */
   failedCount: number
 }
 
-const EMPTY_STATUS: TelegramStatusInfo = { configured: false, pendingCount: 0, failedCount: 0 }
+const EMPTY_STATUS: TelegramStatusInfo = {
+  configured: false,
+  groupConfigured: false,
+  pendingCount: 0,
+  failedCount: 0,
+}
 
 /**
  * Majhen, živ povzetek stanja Telegram sloja — za nevsiljiv indikator v UI
@@ -23,12 +30,16 @@ export function useTelegramStatus(): TelegramStatusInfo {
   return useLiveQuery(
     async () => {
       const settings = await readSettings(db)
-      const configured = Boolean(settings.telegramBotToken && settings.telegramGroupChatId)
+      // Ločeno: žeton odklene pošiljanje, ID skupine samo sporočila v skupino.
+      // Prej je bilo oboje zvezano, zato se ob nastavljenem samo žetonu ni
+      // videlo niti tega, da sporočila čakajo v vrsti — dvojna nevidnost.
+      const configured = Boolean(settings.telegramBotToken)
+      const groupConfigured = Boolean(settings.telegramGroupChatId)
       const [pendingCount, failedCount] = await Promise.all([
         db.outbox.where('status').equals('caka').count(),
         db.outbox.where('status').equals('napaka').count(),
       ])
-      return { configured, pendingCount, failedCount }
+      return { configured, groupConfigured, pendingCount, failedCount }
     },
     [],
     EMPTY_STATUS,
