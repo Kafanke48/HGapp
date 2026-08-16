@@ -3,12 +3,18 @@ import type { Cents } from '../../domain/money.ts'
 import { formatEur } from '../../domain/money.ts'
 
 interface BlagajnaStripProps {
-  /** Σ P — koliko denarja naj bi bilo v blagajni. */
+  /**
+   * Σ P − Σ že izplačano — koliko denarja naj bi bilo v blagajni ZDAJ.
+   * Predčasni odhodi (glej OdhodSheet) denar fizično vzamejo iz blagajne,
+   * zato golo Σ P od prvega takega odhoda naprej ne bi bilo več res.
+   */
   boxCents: Cents
   playerCount: number
   buyInCount: number
   /** Koliko od tega je na kredo — torej koliko denarja fizično MANJKA. */
   creditCents: Cents
+  /** Σ že izplačanega med sejo — razloži, zakaj je zgornja številka manjša od Σ P. */
+  paidOutCents: Cents
 }
 
 /**
@@ -25,6 +31,7 @@ export function BlagajnaStrip({
   playerCount,
   buyInCount,
   creditCents,
+  paidOutCents,
 }: BlagajnaStripProps) {
   const [ticking, setTicking] = useState(false)
   const previous = useRef(boxCents)
@@ -62,6 +69,12 @@ export function BlagajnaStrip({
           <>
             {' · '}
             <span className="text-oxblood">na kredo {formatEur(creditCents)}</span>
+          </>
+        )}
+        {paidOutCents > 0 && (
+          <>
+            {' · '}
+            <span>izplačano {formatEur(paidOutCents)}</span>
           </>
         )}
       </p>

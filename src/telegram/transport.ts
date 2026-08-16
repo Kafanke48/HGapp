@@ -19,6 +19,23 @@ import type { TelegramApiResponse } from './types.ts'
  */
 export class TelegramNetworkError extends Error {}
 
+/**
+ * Pretvori parametre Bot API-ja v form-urlencoded telo.
+ *
+ * Sestavljene vrednosti (npr. `reply_markup` z inline tipkovnico ali
+ * `allowed_updates`) Telegram pričakuje kot JSON NIZ znotraj polja — zato jih
+ * tu serializiramo posebej. `undefined` in `null` izpustimo, da ne pošljemo
+ * praznih polj, ki bi jih Telegram razumel kot vrednost.
+ */
+export function encodeParams(params: Record<string, unknown>): URLSearchParams {
+  const body = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null) continue
+    body.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value))
+  }
+  return body
+}
+
 export interface TelegramTransport {
   /**
    * Pokliče metodo Bot API-ja. `token` gre samo v URL zahteve (glej varnostno
@@ -39,8 +56,19 @@ export const realTelegramTransport: TelegramTransport = {
     try {
       response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
+        // NAMERNO form-urlencoded in NE application/json.
+        //
+        // `application/json` naredi zahtevo "nepreprosto", zato brskalnik pred
+        // njo pošlje preflight OPTIONS — Telegram pa na OPTIONS odgovori s
+        // 501 Not Implemented. Brskalnik tak preflight zavrne in zahteva
+        // nikoli ne odide (opaženo kot "blocked by CORS policy: Response to
+        // preflight request doesn't pass access control check").
+        //
+        // form-urlencoded je ena od treh vrst, ki preflighta NE sprožijo, zato
+        // gre zahteva naravnost ven. Content-Type namenoma ne nastavljamo sami
+        // — brskalnik ga za URLSearchParams postavi pravilno; ročno nastavljanje
+        // bi ga lahko spet spremenilo v nepreprosto zahtevo.
+        body: encodeParams(params),
       })
     } catch (err) {
       // Brez interneta, DNS napaka ipd. — obravnavamo enako kot 5xx.

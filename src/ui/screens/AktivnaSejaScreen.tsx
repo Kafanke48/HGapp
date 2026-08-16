@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../../db/schema.ts'
-import { createBuyIn, transitionSessionStatus, voidBuyIn } from '../../db/repositories/index.ts'
-import type { BuyIn, Player } from '../../db/types.ts'
+import {
+  createBuyIn,
+  sessionPaidOutTotal,
+  transitionSessionStatus,
+  undoEarlyCashout,
+  voidBuyIn,
+} from '../../db/repositories/index.ts'
+import type { BuyIn, Player, SessionPlayer } from '../../db/types.ts'
 import { acquireWakeLock, releaseWakeLock } from '../../platform/index.ts'
 import {
   enqueue,
@@ -21,6 +28,8 @@ import { BlagajnaStrip } from '../components/BlagajnaStrip.tsx'
 import { PlayerTile, type TilePip } from '../components/PlayerTile.tsx'
 import { BuyInSheet, type BuyInSubmission } from '../components/BuyInSheet.tsx'
 import { IgralecSheet } from '../components/IgralecSheet.tsx'
+import { OdhodSheet } from '../components/OdhodSheet.tsx'
+import { DodajIgralcaSheet } from '../components/DodajIgralcaSheet.tsx'
 import { Sheet } from '../components/Sheet.tsx'
 import { Button } from '../components/Button.tsx'
 
@@ -59,7 +68,14 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
   const [detailPlayer, setDetailPlayer] = useState<Player | null>(null)
   const [confirmingEnd, setConfirmingEnd] = useState(false)
   const [pendingUndo, setPendingUndo] = useState<{ buyIn: BuyIn; playerName: string } | null>(null)
+  const [odhodTarget, setOdhodTarget] = useState<{ sessionPlayer: SessionPlayer; player: Player } | null>(null)
+  const [dodajOpen, setDodajOpen] = useState(false)
   const undoTimer = useRef<number | null>(null)
+
+  // Σ že izplačanega med sejo (predčasni odhodi) — bere se ločeno od
+  // sessionTotals, ker gre za drugo tabelo/polje (glej cashouts.ts). Samo
+  // branje znotraj useLiveQuery, nikoli pisanje (glej pravila naloge).
+  const paidOutTotal = useLiveQuery(() => sessionPaidOutTotal(db, sessionId), [sessionId], 0)
 
   // Zaslon ne sme zaspati sredi igre (spec 6.1) — pridobi ob priklopu, sprosti ob odklopu.
   useEffect(() => {
@@ -202,6 +218,12 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
     onZakljuceno()
   }
 
+  // "Vrnil se je za mizo" — igralec, ki je odšel, se je premislil. Realen
+  // primer pri gotovinski igri (glej nalogo, razdelek 2).
+  async function handleReturn(sessionPlayer: SessionPlayer) {
+    await undoEarlyCashout(db, sessionPlayer.id)
+  }
+
   if (!session || rows === undefined) return null
 
   const pipsByPlayer = new Map<string, TilePip[]>()
@@ -219,6 +241,13 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
   const buyInCount = (buyIns ?? []).filter((b) => !b.voided).length
   const presetsCents = settings?.buyInPresetsCents ?? [session.defaultBuyInCents]
   const elapsedMs = session.startedAt ? elapsedNow - session.startedAt : 0
+
+  // Kontrola blagajne po predčasnih odhodih (spec, razdelek 4 naloge):
+  // Σ P − Σ že izplačano, ne golo Σ P — sicer bi bila številka od prvega
+  // odhoda naprej preprosto napačna.
+  const boxCents = totals.boxCents - paidOutTotal
+  // Naslednji prosti sedež za novo dodanega igralca (glej addSessionPlayer).
+  const nextSeatOrder = rows.length
 
   return (
     <div className="flex min-h-full flex-col">
@@ -240,10 +269,11 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
       </header>
 
       <BlagajnaStrip
-        boxCents={totals.boxCents}
+        boxCents={boxCents}
         playerCount={rows.length}
         buyInCount={buyInCount}
         creditCents={creditCents}
+        paidOutCents={paidOutTotal}
       />
 
       {settings?.telegramGroupChatId && (
@@ -264,11 +294,24 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
         </div>
       )}
 
+      <div className="px-4 pb-3">
+        <Button fullWidth onClick={() => setDodajOpen(true)}>
+          + Dodaj igralca
+        </Button>
+      </div>
+
       <div className="grid grid-cols-2 gap-3 px-4 pb-28">
         {rows.map(({ sessionPlayer, player }) => {
           const perPlayer = totals.perPlayer[player.id] ?? { takenCents: 0, paidCents: 0 }
+          const hasLeft = sessionPlayer.leftAt !== null
           return (
-            <div key={sessionPlayer.id} className="relative">
+            // self-start: BREZ tega bi CSS grid ta ovojni div raztegnil na višino
+            // najvišje ploščice v isti vrstici (grid privzeto poravna po "stretch").
+            // Odšla ploščica ima drugačno višino od aktivne (dodatna vrstica "odšel
+            // z ..."), zato bi se prekrivni gumb spodaj (bottom-14/bottom-28,
+            // merjeno od DNA OVOJA) razšel od dejanskega dna ploščice in prekril
+            // njen gumb "Vrnil se je za mizo" (odkrito z elementFromPoint).
+            <div key={sessionPlayer.id} className="relative self-start">
               <PlayerTile
                 name={player.name}
                 takenCents={perPlayer.takenCents}
@@ -277,16 +320,23 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
                 defaultBuyInCents={session.defaultBuyInCents}
                 onQuickBuyIn={() => void handleQuickBuyIn(player)}
                 onOpenDetail={() => setSheetPlayer(player)}
+                leftAt={sessionPlayer.leftAt}
+                cashoutCents={sessionPlayer.cashoutCents}
+                paidOutCents={sessionPlayer.paidOutCents}
+                onOpenOdhod={() => setOdhodTarget({ sessionPlayer, player })}
+                onReturn={() => void handleReturn(sessionPlayer)}
               />
-              {/* Prekriva samo zgornji del ploščice (ime/znesek), NE spodnje vrstice
-                  dveh gumbov (bottom-14 = mt-3 + min-h-11 gumba) — ta dva morata
-                  ostati NESPREMENJENA (glej nalogo). PlayerTile.tsx zato ni bilo
-                  treba spreminjati: ta prekrivni gumb je sosed, ne starš, gumbov. */}
+              {/* Prekriva samo zgornji del ploščice (ime/znesek), NE spodnjega dela z
+                  gumbi — ta del mora ostati klikljiv (glej nalogo). Aktivna ploščica
+                  ima ZDAJ tri gumbe v dveh vrsticah (bottom-28 = mt-3 + 44 + gap-2 +
+                  44, zaokroženo navzgor), odšla ploščica samo enega (bottom-14, kot
+                  prej). PlayerTile.tsx zato ni bilo treba spreminjati: ta prekrivni
+                  gumb je sosed, ne starš, gumbov. */}
               <button
                 type="button"
                 onClick={() => setDetailPlayer(player)}
                 aria-label={`${player.name}: uredi buy-ine te seje`}
-                className="absolute inset-x-0 top-0 bottom-14"
+                className={`absolute inset-x-0 top-0 ${hasLeft ? 'bottom-14' : 'bottom-28'}`}
               />
             </div>
           )
@@ -325,6 +375,26 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
         buyIns={buyIns ?? []}
         groupChatId={settings?.telegramGroupChatId ?? null}
         onClose={() => setDetailPlayer(null)}
+      />
+
+      <OdhodSheet
+        open={odhodTarget !== null}
+        sessionPlayerId={odhodTarget?.sessionPlayer.id ?? null}
+        playerName={odhodTarget?.player.name ?? ''}
+        takenCents={odhodTarget ? (totals.perPlayer[odhodTarget.player.id]?.takenCents ?? 0) : 0}
+        paidCents={odhodTarget ? (totals.perPlayer[odhodTarget.player.id]?.paidCents ?? 0) : 0}
+        cashoutMode={session.cashoutMode}
+        chipDenominations={session.chipDenominations}
+        boxCentsNow={boxCents}
+        onClose={() => setOdhodTarget(null)}
+      />
+
+      <DodajIgralcaSheet
+        open={dodajOpen}
+        sessionId={session.id}
+        seatedPlayerIds={rows.map((r) => r.player.id)}
+        nextSeatOrder={nextSeatOrder}
+        onClose={() => setDodajOpen(false)}
       />
 
       <Sheet open={confirmingEnd} onClose={() => setConfirmingEnd(false)} title="Zaključi sejo?">
