@@ -1,5 +1,7 @@
 # HGapp
 
+**https://kafanke48.github.io/HGapp/**
+
 Evidenca domačih poker sej. Teče na iPhonu kot nameščena spletna aplikacija, deluje brez interneta in nima nobenih stroškov.
 
 Aplikacija **ne procesira denarja**. Samo beleži, kdo je koliko vzel in plačal, ter izračuna, kdo komu koliko dolguje.
