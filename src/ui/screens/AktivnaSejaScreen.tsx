@@ -245,6 +245,7 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
               takenCents={perPlayer.takenCents}
               paidCents={perPlayer.paidCents}
               pips={pipsByPlayer.get(player.id) ?? []}
+              defaultBuyInCents={session.defaultBuyInCents}
               onQuickBuyIn={() => void handleQuickBuyIn(player)}
               onOpenDetail={() => setSheetPlayer(player)}
             />
