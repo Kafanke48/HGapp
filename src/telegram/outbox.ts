@@ -358,3 +358,36 @@ async function scheduleRetry(db: HGappDB, id: string, nowFn: () => number, error
     })
   })
 }
+
+/**
+ * Trajno zavrže eno neuspelo postavko iz vrste.
+ *
+ * Dovoljeno IZKLJUČNO za postavke v stanju 'napaka' — te so že dokončno
+ * obupane in njihov izbris ne more vplivati na noben izračun. Postavka v
+ * stanju 'caka' bi se z izbrisom tiho izgubila, postavka 'poslano' pa je
+ * dokaz, da je bilo sporočilo objavljeno, in bi ob izbrisu lahko bila
+ * poslana še enkrat (ključ proti podvajanju se preverja prav proti njej).
+ *
+ * Obstaja zato, da uporabniškemu vmesniku ni treba pisati v Dexie neposredno.
+ */
+export async function discardOutboxItem(db: HGappDB, id: string): Promise<void> {
+  return withAudit(db, [db.outbox], async (audit) => {
+    const item = await db.outbox.get(id)
+    if (!item) return
+    if (item.status !== 'napaka') {
+      throw new Error('Zavreči je mogoče samo postavke, ki so trajno spodletele.')
+    }
+    const before = snapshot(item)
+    await db.outbox.delete(id)
+    audit.record({
+      sessionId: null,
+      entityTable: 'outbox',
+      entityId: id,
+      action: 'void',
+      before,
+      after: null,
+      versionAfter: null,
+      note: 'Uporabnik je zavrgel neuspelo sporočilo',
+    })
+  })
+}

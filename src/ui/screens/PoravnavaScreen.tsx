@@ -7,8 +7,20 @@ import { computeForSession, finalizeSettlement } from '../../db/repositories/set
 import { exportBackup, downloadOrShareBackup } from '../../platform/index.ts'
 import { formatEur, formatEurSigned } from '../../domain/money.ts'
 import type { DiscrepancyMethod, SettlementMode, SettlementResult, Transfer } from '../../domain/settlement/types.ts'
+import {
+  enqueue,
+  formatFinalStandings,
+  type FinalStandingRow,
+  type SettlementTransferRow,
+} from '../../telegram/index.ts'
+import { useSettings } from '../hooks/useSettings.ts'
 import { Money } from '../components/Money.tsx'
 import { NeskladjeSheet, clearDiscrepancyDraft, readDiscrepancyDraft, writeDiscrepancyDraft } from '../components/NeskladjeSheet.tsx'
+
+/** Ključ proti podvajanju za objavo končne poravnave — glej `handlePostToGroup`. */
+function finalStandingsDedupKey(sessionId: string): string {
+  return `final-standings:${sessionId}`
+}
 
 interface PoravnavaScreenProps {
   sessionId: string
@@ -32,6 +44,17 @@ export function PoravnavaScreen({ sessionId, onKoncano, onNazaj }: PoravnavaScre
   const sessionPlayers = useLiveQuery(() => listSessionPlayers(db, sessionId), [sessionId])
   const totals = useLiveQuery(() => sessionTotals(db, sessionId), [sessionId])
   const allPlayers = useLiveQuery(() => db.players.toArray(), [])
+  const settings = useSettings()
+
+  // Ali je objava končne poravnave v skupino že v vrsti/poslana — prebrano iz
+  // baze, ne iz lokalnega stanja, da tudi ponovni obisk zaslona (npr. po
+  // ponovnem zagonu aplikacije) pravilno pokaže "že poslano" namesto da bi
+  // uporabnika zavedlo, da še ni bilo nič objavljeno (glej nalogo: "dedup key
+  // derived from the session id — a settlement must never be posted twice").
+  const finalStandingsItem = useLiveQuery(
+    () => db.outbox.where('dedupKey').equals(finalStandingsDedupKey(sessionId)).first(),
+    [sessionId],
+  )
 
   const nameById = useMemo(() => {
     const m = new Map<string, string>()
@@ -153,6 +176,56 @@ export function PoravnavaScreen({ sessionId, onKoncano, onNazaj }: PoravnavaScre
     }
   }
 
+  const [posting, setPosting] = useState(false)
+  const [postError, setPostError] = useState<string | null>(null)
+
+  /**
+   * Objava končne lestvice in poravnalnega načrta v Telegram skupino —
+   * EKSPLICITNO dejanje uporabnika (glej nalogo), nikoli tih stranski učinek
+   * `finalizeSettlement`. `enqueue` je idempotenten glede na `dedupKey`, zato
+   * ponovni klik (ali ponovni obisk zaslona) sporočila ne podvoji.
+   */
+  async function handlePostToGroup(): Promise<void> {
+    if (!result || !settings?.telegramGroupChatId) return
+    setPosting(true)
+    setPostError(null)
+    try {
+      const standingRows: FinalStandingRow[] = Object.keys(result.netCents).map((id) => ({
+        name: nameOf(id),
+        netCents: result.netCents[id] ?? 0,
+        payoutCents: result.payoutCents[id] ?? 0,
+      }))
+      const transferRows: SettlementTransferRow[] = result.transfers.map((t) => ({
+        fromName: t.fromPlayerId === null ? null : nameOf(t.fromPlayerId),
+        toName: t.toPlayerId === null ? null : nameOf(t.toPlayerId),
+        amountCents: t.amountCents,
+      }))
+      await enqueue(db, {
+        dedupKey: finalStandingsDedupKey(sessionId),
+        method: 'sendMessage',
+        params: {
+          chat_id: settings.telegramGroupChatId,
+          text: formatFinalStandings(standingRows, transferRows, result.boxCents),
+        },
+        relatedTable: 'sessions',
+        relatedId: sessionId,
+      })
+    } catch (e) {
+      setPostError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  const groupChatConfigured = Boolean(settings?.telegramGroupChatId)
+  // 'caka' ALI 'poslano' pomeni, da je objava že v teku ali opravljena — gumb
+  // takrat zamenja tiho stanje, ne dovoli ponovnega pošiljanja iz te seje
+  // (glej `enqueue`: isti dedupKey v teh dveh stanjih se ne prepiše).
+  const alreadyQueuedOrSent =
+    finalStandingsItem !== undefined &&
+    (finalStandingsItem.status === 'caka' || finalStandingsItem.status === 'poslano')
+  const alreadyFailed = finalStandingsItem?.status === 'napaka'
+
   if (!session || !sessionPlayers) {
     return (
       <div className="px-5 py-8">
@@ -190,6 +263,12 @@ export function PoravnavaScreen({ sessionId, onKoncano, onNazaj }: PoravnavaScre
             copyStatus={copyStatus}
             onCopy={handleCopy}
             onKoncano={onKoncano}
+            groupChatConfigured={groupChatConfigured}
+            posting={posting}
+            postError={postError}
+            alreadyQueuedOrSent={alreadyQueuedOrSent}
+            alreadyFailed={alreadyFailed}
+            onPostToGroup={handlePostToGroup}
           />
         ) : needsDiscrepancy ? (
           <div className="border-oxblood bg-oxblood/10 mt-2 rounded-lg border p-4">
@@ -553,9 +632,31 @@ interface KoncanoViewProps {
   copyStatus: CopyStatus
   onCopy: () => void
   onKoncano: () => void
+  /** Ali je ID Telegram skupine sploh nastavljen — sicer se razdelek ne prikaže. */
+  groupChatConfigured: boolean
+  posting: boolean
+  postError: string | null
+  /** Objava je že v vrsti ali poslana (glej `finalStandingsDedupKey`) — gumb se skrije. */
+  alreadyQueuedOrSent: boolean
+  alreadyFailed: boolean
+  onPostToGroup: () => void
 }
 
-function KoncanoView({ result, backupStatus, onBackup, summaryText, copyStatus, onCopy, onKoncano }: KoncanoViewProps) {
+function KoncanoView({
+  result,
+  backupStatus,
+  onBackup,
+  summaryText,
+  copyStatus,
+  onCopy,
+  onKoncano,
+  groupChatConfigured,
+  posting,
+  postError,
+  alreadyQueuedOrSent,
+  alreadyFailed,
+  onPostToGroup,
+}: KoncanoViewProps) {
   return (
     <div className="flex flex-col gap-4 pt-2">
       <div>
@@ -601,6 +702,29 @@ function KoncanoView({ result, backupStatus, onBackup, summaryText, copyStatus, 
         {copyStatus === 'done' && <p className="text-jade mt-1 text-xs">Kopirano.</p>}
         {copyStatus === 'error' && <p className="text-oxblood mt-1 text-xs">Kopiranje ni uspelo — označi besedilo ročno.</p>}
       </div>
+
+      {groupChatConfigured && (
+        <div className="tile p-4">
+          <p className="eyebrow">Objava v skupino (Telegram)</p>
+          <p className="text-bone-dim mt-1 text-sm">
+            Pošlje končno lestvico in poravnalni načrt neposredno v skupino prek bota — eksplicitno dejanje, ne
+            samodejno ob poravnavi.
+          </p>
+          {alreadyQueuedOrSent ? (
+            <p className="text-jade mt-2 text-xs">Objavljeno — sporočilo je v vrsti ali že poslano v skupino.</p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void onPostToGroup()}
+              disabled={posting}
+              className="border-line text-bone mt-2 min-h-11 w-full rounded-lg border py-2 text-sm font-semibold disabled:opacity-40"
+            >
+              {posting ? 'Pošiljam …' : alreadyFailed ? 'Poskusi znova' : 'Objavi v skupino'}
+            </button>
+          )}
+          {postError && <p className="text-oxblood mt-1 text-xs">{postError}</p>}
+        </div>
+      )}
 
       <button
         type="button"

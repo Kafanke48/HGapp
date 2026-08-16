@@ -8,10 +8,21 @@ import { SejeScreen } from './screens/SejeScreen.tsx'
 import { NovaSejaScreen } from './screens/NovaSejaScreen.tsx'
 import { AktivnaSejaScreen } from './screens/AktivnaSejaScreen.tsx'
 import { IgralciScreen } from './screens/IgralciScreen.tsx'
+import { DolgoviScreen } from './screens/DolgoviScreen.tsx'
+import { NastavitveScreen } from './screens/NastavitveScreen.tsx'
+import { useTelegramRuntime } from './hooks/useTelegramRuntime.ts'
 import { ZakljucekScreen } from './screens/ZakljucekScreen.tsx'
 import { PoravnavaScreen } from './screens/PoravnavaScreen.tsx'
 
-export type View = 'seje' | 'nova-seja' | 'aktivna' | 'zakljucek' | 'poravnava' | 'igralci'
+export type View =
+  | 'seje'
+  | 'nova-seja'
+  | 'aktivna'
+  | 'zakljucek'
+  | 'poravnava'
+  | 'igralci'
+  | 'dolgovi'
+  | 'nastavitve'
 
 /** Med temi pogledi je tabvrstica skrita — so osredotočeni, celozaslonski tokovi (glej spec 6). */
 const FOCUSED_VIEWS: readonly View[] = ['aktivna', 'zakljucek', 'poravnava']
@@ -32,6 +43,11 @@ export function App() {
   // da se pogled in identiteta seje ne moreta razsinhronizirati.
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [guardPassed, setGuardPassed] = useState<boolean | null>(null)
+
+  // Telegram teče samo, dokler smo na aktivni seji: poslušanje odgovorov je na
+  // iOS itak mogoče le, dokler je aplikacija odprta (glej spec 7.6). Brez
+  // nastavljenega tokena hook ne naredi ničesar.
+  useTelegramRuntime(view === 'aktivna' ? sessionId : null)
 
   useEffect(() => {
     const standalone =
@@ -134,6 +150,10 @@ export function App() {
         )}
 
         {view === 'igralci' && <IgralciScreen />}
+
+        {view === 'dolgovi' && <DolgoviScreen />}
+
+        {view === 'nastavitve' && <NastavitveScreen />}
         </ErrorBoundary>
       </main>
 
@@ -144,7 +164,9 @@ export function App() {
 
 const TABS: { view: View; label: string }[] = [
   { view: 'seje', label: 'Seje' },
+  { view: 'dolgovi', label: 'Dolgovi' },
   { view: 'igralci', label: 'Igralci' },
+  { view: 'nastavitve', label: 'Nastavitve' },
 ]
 
 function TabBar({ view, onChange }: { view: View; onChange: (v: View) => void }) {

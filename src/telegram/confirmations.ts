@@ -15,6 +15,7 @@ import type { BuyIn, Player } from '../db/types.ts'
 import { now } from '../db/ids.ts'
 import { setConfirmation } from '../db/repositories/buyins.ts'
 import { enqueue } from './outbox.ts'
+import { handleCommand } from './commands.ts'
 import { formatBuyInConfirmationPrompt } from './formatters.ts'
 import type { TelegramCallbackQuery, TelegramMessage } from './types.ts'
 
@@ -144,6 +145,15 @@ export async function handleCallbackQuery(db: HGappDB, callbackQuery: TelegramCa
 export async function handleMessage(db: HGappDB, message: TelegramMessage): Promise<void> {
   const text = message.text
   if (!text || text.trim() === '') return
+
+  // Ukazi (npr. /stanje) niso razlog zavrnitve.
+  if (await handleCommand(db, message)) return
+
+  // SAMO zasebni klepet. Brez te omejitve bi vsako sporočilo igralca V SKUPINI
+  // pristalo kot razlog zavrnitve njegovega buy-ina — dovolj je, da nekdo
+  // zavrne buy-in in nato v skupini vpraša "kdaj se dobimo?", pa se to tiho
+  // zapiše kot razlog. Razlog se zbira izključno prek zasebnega sporočila.
+  if (message.chat.type !== 'private') return
 
   const tgUserId = message.from ? String(message.from.id) : ''
   if (!tgUserId) return

@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { db } from '../../db/schema.ts'
 import { createBuyIn, transitionSessionStatus, voidBuyIn } from '../../db/repositories/index.ts'
+import type { BuyIn, Player } from '../../db/types.ts'
 import { acquireWakeLock, releaseWakeLock } from '../../platform/index.ts'
+import {
+  enqueue,
+  enqueueConfirmationPrompt,
+  formatCurrentStandings,
+  formatSessionStarted,
+  type StandingRow,
+} from '../../telegram/index.ts'
 import { useSession } from '../hooks/useSession.ts'
 import { useSessionPlayerRows } from '../hooks/useSessionPlayers.ts'
 import { useSessionTotals } from '../hooks/useSessionTotals.ts'
 import { useBuyIns } from '../hooks/useBuyIns.ts'
 import { useSettings } from '../hooks/useSettings.ts'
+import { useTelegramStatus } from '../hooks/useTelegramStatus.ts'
 import { BlagajnaStrip } from '../components/BlagajnaStrip.tsx'
 import { PlayerTile, type TilePip } from '../components/PlayerTile.tsx'
 import { BuyInSheet, type BuyInSubmission } from '../components/BuyInSheet.tsx'
@@ -41,9 +50,10 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
   const totals = useSessionTotals(sessionId)
   const buyIns = useBuyIns(sessionId)
   const settings = useSettings()
+  const telegramStatus = useTelegramStatus()
 
   const [elapsedNow, setElapsedNow] = useState(() => Date.now())
-  const [sheetPlayer, setSheetPlayer] = useState<{ id: string; name: string } | null>(null)
+  const [sheetPlayer, setSheetPlayer] = useState<Player | null>(null)
   const [confirmingEnd, setConfirmingEnd] = useState(false)
   const [pendingUndo, setPendingUndo] = useState<{ buyInId: string; playerName: string } | null>(null)
   const undoTimer = useRef<number | null>(null)
@@ -66,21 +76,52 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
     }
   }, [])
 
+  // Obvestilo v skupino ob začetku seje — TOČNO ENKRAT, ne glede na to,
+  // kolikokrat je ta zaslon odprt/zaprt/ponovno naložen (glej spec 7.4:
+  // dedupKey ščiti pred podvajanjem). `enqueue` samo doda v vrsto — pravo
+  // pošiljanje opravi `useTelegramRuntime` (drain) v App, zunaj naše lasti.
+  useEffect(() => {
+    if (!session || session.startedAt === null) return
+    if (!settings?.telegramGroupChatId) return // Skupina ni nastavljena — ni kam poslati.
+    void enqueue(db, {
+      dedupKey: `session-started:${session.id}`,
+      method: 'sendMessage',
+      params: {
+        chat_id: settings.telegramGroupChatId,
+        text: formatSessionStarted({ name: session.name, location: session.location }),
+      },
+      relatedTable: 'sessions',
+      relatedId: session.id,
+    }).catch((err: unknown) => {
+      console.warn('Telegram: obvestilo o začetku seje ni bilo dodano v vrsto', err)
+    })
+  }, [session, settings])
+
   function showUndo(buyInId: string, playerName: string) {
     if (undoTimer.current !== null) window.clearTimeout(undoTimer.current)
     setPendingUndo({ buyInId, playerName })
     undoTimer.current = window.setTimeout(() => setPendingUndo(null), UNDO_WINDOW_MS)
   }
 
-  async function handleQuickBuyIn(playerId: string, playerName: string) {
+  // Zasebna potrditev buy-ina gre v vrsto NEODVISNO od glavnega zapisa —
+  // fire-and-forget: nikoli ne sme zakasniti ali blokirati buy-ina, in
+  // nepovezan igralec je normalno stanje, ne napaka (glej spec 7.3/7.5).
+  function fireConfirmationPrompt(player: Player, buyIn: BuyIn) {
+    void enqueueConfirmationPrompt(db, player, buyIn).catch((err: unknown) => {
+      console.warn('Telegram: potrditev buy-ina ni bila dodana v vrsto', err)
+    })
+  }
+
+  async function handleQuickBuyIn(player: Player) {
     if (!session) return
     const buyIn = await createBuyIn(db, {
       sessionId: session.id,
-      playerId,
+      playerId: player.id,
       amountCents: session.defaultBuyInCents,
       paymentMethod: 'gotovina',
     })
-    showUndo(buyIn.id, playerName)
+    showUndo(buyIn.id, player.name)
+    fireConfirmationPrompt(player, buyIn)
   }
 
   async function handleUndo() {
@@ -92,7 +133,7 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
 
   async function handleBuyInSubmit(input: BuyInSubmission) {
     if (!session || !sheetPlayer) return
-    await createBuyIn(db, {
+    const buyIn = await createBuyIn(db, {
       sessionId: session.id,
       playerId: sheetPlayer.id,
       kind: input.kind,
@@ -100,7 +141,29 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
       paymentMethod: input.paymentMethod,
       note: input.note,
     })
+    fireConfirmationPrompt(sheetPlayer, buyIn)
     setSheetPlayer(null)
+  }
+
+  // Ročna objava vmesnega stanja v skupino (spec 7.4) — NIKOLI samodejno.
+  // dedupKey vsebuje čas, ker gre za ponovljivo dejanje: vsak pritisk je
+  // svoje, novo sporočilo, ne popravek prejšnjega.
+  async function handleSendStandings() {
+    if (!session || !rows || !settings?.telegramGroupChatId) return
+    const standingRows: StandingRow[] = rows.map(({ player }) => {
+      const p = totals.perPlayer[player.id] ?? { takenCents: 0, paidCents: 0 }
+      return { name: player.name, takenCents: p.takenCents, paidCents: p.paidCents }
+    })
+    await enqueue(db, {
+      dedupKey: `standings:${session.id}:${Date.now()}`,
+      method: 'sendMessage',
+      params: {
+        chat_id: settings.telegramGroupChatId,
+        text: formatCurrentStandings(standingRows, totals.boxCents),
+      },
+      relatedTable: 'sessions',
+      relatedId: session.id,
+    })
   }
 
   async function handleConfirmEnd() {
@@ -154,6 +217,24 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
         creditCents={creditCents}
       />
 
+      {settings?.telegramGroupChatId && (
+        <div className="flex items-center justify-between px-4 pb-2">
+          <button
+            type="button"
+            onClick={() => void handleSendStandings()}
+            className="text-bone-dim min-h-11 px-1 text-[0.8125rem] font-medium underline"
+          >
+            Pošlji stanje v skupino
+          </button>
+          {/* Tih indikator — namerno majhen in bledih barv, da ne tekmuje z blagajno zgoraj. */}
+          {telegramStatus.pendingCount > 0 && (
+            <span className="text-bone-faint text-[0.6875rem]">
+              {telegramStatus.pendingCount} v vrsti
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3 px-4 pb-28">
         {rows.map(({ sessionPlayer, player }) => {
           const perPlayer = totals.perPlayer[player.id] ?? { takenCents: 0, paidCents: 0 }
@@ -164,8 +245,8 @@ export function AktivnaSejaScreen({ sessionId, onZakljuceno, onNazaj }: AktivnaS
               takenCents={perPlayer.takenCents}
               paidCents={perPlayer.paidCents}
               pips={pipsByPlayer.get(player.id) ?? []}
-              onQuickBuyIn={() => void handleQuickBuyIn(player.id, player.name)}
-              onOpenDetail={() => setSheetPlayer({ id: player.id, name: player.name })}
+              onQuickBuyIn={() => void handleQuickBuyIn(player)}
+              onOpenDetail={() => setSheetPlayer(player)}
             />
           )
         })}
