@@ -94,6 +94,8 @@ export function PoravnavaScreen({ sessionId, onKoncano, onNazaj }: PoravnavaScre
       takenCents: totals.perPlayer[sp.playerId]?.takenCents ?? 0,
       paidCents: totals.perPlayer[sp.playerId]?.paidCents ?? 0,
       cashoutCents: sp.cashoutCents ?? 0,
+      // `?? 0` zaradi zapisov izpred uvedbe predčasnih izplačil.
+      paidOutCents: sp.paidOutCents ?? 0,
     }))
   }, [sessionPlayers, totals, nameById])
 

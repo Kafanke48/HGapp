@@ -15,8 +15,9 @@ function player(
   takenCents: number,
   paidCents: number,
   cashoutCents: number,
+  paidOutCents = 0,
 ): PlayerInput {
-  return { playerId, takenCents, paidCents, cashoutCents }
+  return { playerId, takenCents, paidCents, cashoutCents, paidOutCents }
 }
 
 function run(players: PlayerInput[], overrides: Partial<SettlementInput> = {}) {
@@ -121,6 +122,65 @@ describe('spec 4.3 — načrt: dolžnik nakaže največjemu zmagovalcu, ostalo i
     // Vsota se mora izidti tudi po ročni izbiri.
     const sumPayout = Object.values(r.payoutCents).reduce((a, b) => a + b, 0)
     expect(sumPayout).toBe(r.boxCents)
+  })
+})
+
+describe('predčasni odhod — igralec vzame denar iz blagajne med sejo', () => {
+  it('blagajna se zmanjša za izplačano, invarianta pa drži', () => {
+    // Cash game: Miha odide sredi večera. Vplačal je 20 €, odnese žetonov za
+    // 35 € in denar vzame TAKOJ iz blagajne. Ostala dva igrata naprej.
+    // Σ B = 60 €, Σ C = 60 € → brez neskladja.
+    const r = computeSettlement({
+      players: [
+        { playerId: 'miha', takenCents: 2000, paidCents: 2000, cashoutCents: 3500, paidOutCents: 3500 },
+        { playerId: 'ana', takenCents: 2000, paidCents: 2000, cashoutCents: 1500, paidOutCents: 0 },
+        { playerId: 'bine', takenCents: 2000, paidCents: 2000, cashoutCents: 1000, paidOutCents: 0 },
+      ],
+      discrepancy: null,
+      expense: null,
+      mode: 'blagajna',
+    })
+
+    // V blagajni je bilo 60 €, Miha je odnesel 35 € → ostane 25 €.
+    expect(r.boxCents).toBe(2500)
+
+    // Miha je poravnan: pripadalo mu je 35 €, toliko je tudi vzel.
+    expect(r.payoutCents['miha']).toBe(0)
+    expect(r.payoutCents['ana']).toBe(1500)
+    expect(r.payoutCents['bine']).toBe(1000)
+
+    // Invarianta: vsota preostalih izplačil je natanko vsebina blagajne.
+    const sum = Object.values(r.payoutCents).reduce((a, b) => a + b, 0)
+    expect(sum).toBe(r.boxCents)
+
+    // Poravnanemu igralcu načrt ne sme ničesar nakazati.
+    expect(r.transfers.some((t) => t.toPlayerId === 'miha')).toBe(false)
+  })
+
+  it('kdor je vzel več, kot mu pripada, mora vrniti razliko', () => {
+    // Miha si je izplačal 40 €, pripadalo pa mu je 35 € — 5 € mora vrniti.
+    const r = computeSettlement({
+      players: [
+        { playerId: 'miha', takenCents: 2000, paidCents: 2000, cashoutCents: 3500, paidOutCents: 4000 },
+        { playerId: 'ana', takenCents: 2000, paidCents: 2000, cashoutCents: 1500, paidOutCents: 0 },
+        { playerId: 'bine', takenCents: 2000, paidCents: 2000, cashoutCents: 1000, paidOutCents: 0 },
+      ],
+      discrepancy: null,
+      expense: null,
+      mode: 'blagajna',
+    })
+
+    expect(r.payoutCents['miha']).toBe(-500)
+    expect(r.boxCents).toBe(2000)
+    const sum = Object.values(r.payoutCents).reduce((a, b) => a + b, 0)
+    expect(sum).toBe(r.boxCents)
+  })
+
+  it('brez predčasnih izplačil se model obnaša natanko kot prej', () => {
+    const r = run([player('a', 2000, 2000, 3500), player('b', 2000, 2000, 500)])
+    expect(r.boxCents).toBe(4000)
+    expect(r.payoutCents['a']).toBe(3500)
+    expect(r.payoutCents['b']).toBe(500)
   })
 })
 

@@ -170,6 +170,8 @@ export async function addSessionPlayer(
       seatOrder,
       cashoutCents: null,
       cashoutChipCounts: null,
+      paidOutCents: 0,
+      leftAt: null,
       version: 1,
       createdAt: timestamp,
       updatedAt: timestamp,

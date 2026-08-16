@@ -20,7 +20,7 @@ function mkInput(
 
 describe('computeSettlement — osnovni primeri', () => {
   it('en sam igralec, vse se izide', () => {
-    const input = mkInput([{ playerId: 'p1', takenCents: 1000, paidCents: 1000, cashoutCents: 1000 }])
+    const input = mkInput([{ playerId: 'p1', takenCents: 1000, paidCents: 1000, cashoutCents: 1000, paidOutCents: 0 }])
     const result = computeSettlement(input)
     expect(result.discrepancyCents).toBe(0)
     expect(result.netCents).toEqual({ p1: 0 })
@@ -33,9 +33,9 @@ describe('computeSettlement — osnovni primeri', () => {
 
   it('vsi na nuli → brez transferjev', () => {
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 1000, paidCents: 0, cashoutCents: 1000 },
-      { playerId: 'p2', takenCents: 1000, paidCents: 0, cashoutCents: 1000 },
-      { playerId: 'p3', takenCents: 1000, paidCents: 0, cashoutCents: 1000 },
+      { playerId: 'p1', takenCents: 1000, paidCents: 0, cashoutCents: 1000, paidOutCents: 0 },
+      { playerId: 'p2', takenCents: 1000, paidCents: 0, cashoutCents: 1000, paidOutCents: 0 },
+      { playerId: 'p3', takenCents: 1000, paidCents: 0, cashoutCents: 1000, paidOutCents: 0 },
     ]
     const result = computeSettlement(mkInput(players))
     expect(result.netCents).toEqual({ p1: 0, p2: 0, p3: 0 })
@@ -46,8 +46,8 @@ describe('computeSettlement — osnovni primeri', () => {
 
   it('missing discrepancy resolution when discrepancy != 0 → throws', () => {
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 1000, paidCents: 1000, cashoutCents: 900 },
-      { playerId: 'p2', takenCents: 1000, paidCents: 1000, cashoutCents: 1000 },
+      { playerId: 'p1', takenCents: 1000, paidCents: 1000, cashoutCents: 900, paidOutCents: 0 },
+      { playerId: 'p2', takenCents: 1000, paidCents: 1000, cashoutCents: 1000, paidOutCents: 0 },
     ]
     expect(() => computeSettlement(mkInput(players, { discrepancy: null }))).toThrow(ObracunNapaka)
   })
@@ -59,11 +59,11 @@ describe('computeSettlement — štirje primeri iz spec 3.3 (buy-in 20 €)', ()
     // igralca, na katerega z metodo 'pripisi' pripišemo celotno umetno neskladje.
     // Njegov obstoj ne vpliva na izplačila preostalih štirih — to je bistvo testa.
     const players: PlayerInput[] = [
-      { playerId: 'cashWin', takenCents: 2000, paidCents: 2000, cashoutCents: 5000 },
-      { playerId: 'kredoWin', takenCents: 2000, paidCents: 0, cashoutCents: 5000 },
-      { playerId: 'kredoLoss', takenCents: 2000, paidCents: 0, cashoutCents: 500 },
-      { playerId: 'cashLoss', takenCents: 2000, paidCents: 2000, cashoutCents: 500 },
-      { playerId: 'sink', takenCents: 0, paidCents: 0, cashoutCents: 0 },
+      { playerId: 'cashWin', takenCents: 2000, paidCents: 2000, cashoutCents: 5000, paidOutCents: 0 },
+      { playerId: 'kredoWin', takenCents: 2000, paidCents: 0, cashoutCents: 5000, paidOutCents: 0 },
+      { playerId: 'kredoLoss', takenCents: 2000, paidCents: 0, cashoutCents: 500, paidOutCents: 0 },
+      { playerId: 'cashLoss', takenCents: 2000, paidCents: 2000, cashoutCents: 500, paidOutCents: 0 },
+      { playerId: 'sink', takenCents: 0, paidCents: 0, cashoutCents: 0, paidOutCents: 0 },
     ]
     const result = computeSettlement(
       mkInput(players, { discrepancy: { method: 'pripisi', playerId: 'sink' } }),
@@ -82,9 +82,9 @@ describe('computeSettlement — štirje primeri iz spec 3.3 (buy-in 20 €)', ()
 describe('computeSettlement — razrešitev neskladja', () => {
   it('ostanek enega centa: neskladje −50 razdeljeno enakomerno na 3 → [17,17,16]', () => {
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 1000, paidCents: 0, cashoutCents: 1000 },
-      { playerId: 'p2', takenCents: 1000, paidCents: 0, cashoutCents: 1000 },
-      { playerId: 'p3', takenCents: 1000, paidCents: 0, cashoutCents: 950 },
+      { playerId: 'p1', takenCents: 1000, paidCents: 0, cashoutCents: 1000, paidOutCents: 0 },
+      { playerId: 'p2', takenCents: 1000, paidCents: 0, cashoutCents: 1000, paidOutCents: 0 },
+      { playerId: 'p3', takenCents: 1000, paidCents: 0, cashoutCents: 950, paidOutCents: 0 },
     ]
     const result = computeSettlement(mkInput(players, { discrepancy: { method: 'enakomerno' } }))
     expect(result.discrepancyCents).toBe(-50)
@@ -99,9 +99,9 @@ describe('computeSettlement — razrešitev neskladja', () => {
 
   it('sorazmerna delitev neskladja, kjer je pomemben največji ostanek', () => {
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 2701, paidCents: 0, cashoutCents: 200 },
-      { playerId: 'p2', takenCents: 0, paidCents: 0, cashoutCents: 300 },
-      { playerId: 'p3', takenCents: 0, paidCents: 0, cashoutCents: 500 },
+      { playerId: 'p1', takenCents: 2701, paidCents: 0, cashoutCents: 200, paidOutCents: 0 },
+      { playerId: 'p2', takenCents: 0, paidCents: 0, cashoutCents: 300, paidOutCents: 0 },
+      { playerId: 'p3', takenCents: 0, paidCents: 0, cashoutCents: 500, paidOutCents: 0 },
     ]
     // ΣC = 1000, ΣB = 2701 → neskladje = −1701, ciljna vsota popravkov = +1701
     // uteži [200,300,500]: točno 340.2 / 510.3 / 850.5 → ostanek gre p3 (največji decimalni del)
@@ -114,8 +114,8 @@ describe('computeSettlement — razrešitev neskladja', () => {
 
   it('sorazmerna delitev pade nazaj na enakomerno, če so vsi stacki 0', () => {
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 100, paidCents: 0, cashoutCents: 0 },
-      { playerId: 'p2', takenCents: 100, paidCents: 0, cashoutCents: 0 },
+      { playerId: 'p1', takenCents: 100, paidCents: 0, cashoutCents: 0, paidOutCents: 0 },
+      { playerId: 'p2', takenCents: 100, paidCents: 0, cashoutCents: 0, paidOutCents: 0 },
     ]
     // ΣC=0, ΣB=200 → neskladje −200, a vsi cashouti so 0 → uteži same ničle
     const result = computeSettlement(mkInput(players, { discrepancy: { method: 'sorazmerno' } }))
@@ -125,7 +125,7 @@ describe('computeSettlement — razrešitev neskladja', () => {
 
   it('pripiši enemu igralcu, ki ni udeleženec → vrže napako', () => {
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 1000, paidCents: 0, cashoutCents: 900 },
+      { playerId: 'p1', takenCents: 1000, paidCents: 0, cashoutCents: 900, paidOutCents: 0 },
     ]
     expect(() =>
       computeSettlement(mkInput(players, { discrepancy: { method: 'pripisi', playerId: 'ne-obstaja' } })),
@@ -134,7 +134,7 @@ describe('computeSettlement — razrešitev neskladja', () => {
 
   it('ročna razrešitev brez zapiska → vrže napako', () => {
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 1000, paidCents: 0, cashoutCents: 900 },
+      { playerId: 'p1', takenCents: 1000, paidCents: 0, cashoutCents: 900, paidOutCents: 0 },
     ]
     expect(() =>
       computeSettlement(
@@ -147,7 +147,7 @@ describe('computeSettlement — razrešitev neskladja', () => {
 
   it('ročna razrešitev, ki se ne izide z neskladjem → vrže napako', () => {
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 1000, paidCents: 0, cashoutCents: 900 },
+      { playerId: 'p1', takenCents: 1000, paidCents: 0, cashoutCents: 900, paidOutCents: 0 },
     ]
     expect(() =>
       computeSettlement(
@@ -160,7 +160,7 @@ describe('computeSettlement — razrešitev neskladja', () => {
 
   it('ročna razrešitev z veljavnim zapiskom uspe', () => {
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 1000, paidCents: 0, cashoutCents: 900 },
+      { playerId: 'p1', takenCents: 1000, paidCents: 0, cashoutCents: 900, paidOutCents: 0 },
     ]
     const result = computeSettlement(
       mkInput(players, {
@@ -174,9 +174,9 @@ describe('computeSettlement — razrešitev neskladja', () => {
 describe('computeSettlement — delitev stroškov', () => {
   it('neskladje IN strošek skupaj: preverjeni natančni končni centi', () => {
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 1000, paidCents: 1000, cashoutCents: 900 },
-      { playerId: 'p2', takenCents: 1000, paidCents: 0, cashoutCents: 1000 },
-      { playerId: 'p3', takenCents: 1000, paidCents: 1000, cashoutCents: 1050 },
+      { playerId: 'p1', takenCents: 1000, paidCents: 1000, cashoutCents: 900, paidOutCents: 0 },
+      { playerId: 'p2', takenCents: 1000, paidCents: 0, cashoutCents: 1000, paidOutCents: 0 },
+      { playerId: 'p3', takenCents: 1000, paidCents: 1000, cashoutCents: 1050, paidOutCents: 0 },
     ]
     const result = computeSettlement(
       mkInput(players, {
@@ -195,9 +195,9 @@ describe('computeSettlement — delitev stroškov', () => {
 
   it('"po dobičku", ko nihče ni v plusu → pade nazaj na "po glavah", zastavica nastavljena', () => {
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 1000, paidCents: 500, cashoutCents: 1000 },
-      { playerId: 'p2', takenCents: 1000, paidCents: 500, cashoutCents: 1000 },
-      { playerId: 'p3', takenCents: 1000, paidCents: 500, cashoutCents: 1000 },
+      { playerId: 'p1', takenCents: 1000, paidCents: 500, cashoutCents: 1000, paidOutCents: 0 },
+      { playerId: 'p2', takenCents: 1000, paidCents: 500, cashoutCents: 1000, paidOutCents: 0 },
+      { playerId: 'p3', takenCents: 1000, paidCents: 500, cashoutCents: 1000, paidOutCents: 0 },
     ]
     const result = computeSettlement(
       mkInput(players, {
@@ -215,6 +215,7 @@ describe('computeSettlement — delitev stroškov', () => {
       takenCents: 1000,
       paidCents: 1000,
       cashoutCents: 1000,
+      paidOutCents: 0,
     }))
     const result = computeSettlement(
       mkInput(players, {
@@ -232,9 +233,9 @@ describe('computeSettlement — poravnalni načrt', () => {
   it('preferredCreditors se upošteva, preostanek gre po privzetem pravilu (p2p)', () => {
     // p1 dolguje 130. Preferira p2, a p2 terja le 30 → preostalih 100 gre p3 (edini drug prejemnik).
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 130, paidCents: 0, cashoutCents: 0 },
-      { playerId: 'p2', takenCents: 0, paidCents: 0, cashoutCents: 30 },
-      { playerId: 'p3', takenCents: 0, paidCents: 0, cashoutCents: 100 },
+      { playerId: 'p1', takenCents: 130, paidCents: 0, cashoutCents: 0, paidOutCents: 0 },
+      { playerId: 'p2', takenCents: 0, paidCents: 0, cashoutCents: 30, paidOutCents: 0 },
+      { playerId: 'p3', takenCents: 0, paidCents: 0, cashoutCents: 100, paidOutCents: 0 },
     ]
     const result = computeSettlement(
       mkInput(players, { mode: 'p2p', preferredCreditors: { p1: 'p2' } }),
@@ -248,8 +249,8 @@ describe('computeSettlement — poravnalni načrt', () => {
 
   it('p2p način z nepraznо blagajno nastavi opozorilo p2pWithNonEmptyBox', () => {
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 1000, paidCents: 1000, cashoutCents: 1050 },
-      { playerId: 'p2', takenCents: 1000, paidCents: 500, cashoutCents: 950 },
+      { playerId: 'p1', takenCents: 1000, paidCents: 1000, cashoutCents: 1050, paidOutCents: 0 },
+      { playerId: 'p2', takenCents: 1000, paidCents: 500, cashoutCents: 950, paidOutCents: 0 },
     ]
     const result = computeSettlement(mkInput(players, { mode: 'p2p' }))
     expect(result.p2pWithNonEmptyBox).toBe(true)
@@ -262,8 +263,8 @@ describe('computeSettlement — poravnalni načrt', () => {
 
   it('blagajna: direktna nakazila najprej, preostanek iz blagajne', () => {
     const players: PlayerInput[] = [
-      { playerId: 'debtor', takenCents: 1000, paidCents: 0, cashoutCents: 800 }, // net -200, payout -200
-      { playerId: 'winner', takenCents: 1000, paidCents: 1000, cashoutCents: 1200 }, // net +200, payout +1200
+      { playerId: 'debtor', takenCents: 1000, paidCents: 0, cashoutCents: 800, paidOutCents: 0 }, // net -200, payout -200
+      { playerId: 'winner', takenCents: 1000, paidCents: 1000, cashoutCents: 1200, paidOutCents: 0 }, // net +200, payout +1200
     ]
     const result = computeSettlement(mkInput(players))
     expect(result.boxCents).toBe(1000)
@@ -280,8 +281,8 @@ describe('computeSettlement — lastnost negativnega izplačila', () => {
     // Če vsak plača sproti (P = B), je izplačilo vedno C, torej nikoli negativno,
     // razen če je C samo negativen (fizično nemogoče za cashout).
     const players: PlayerInput[] = [
-      { playerId: 'p1', takenCents: 2000, paidCents: 2000, cashoutCents: 0 },
-      { playerId: 'p2', takenCents: 0, paidCents: 0, cashoutCents: 2000 },
+      { playerId: 'p1', takenCents: 2000, paidCents: 2000, cashoutCents: 0, paidOutCents: 0 },
+      { playerId: 'p2', takenCents: 0, paidCents: 0, cashoutCents: 2000, paidOutCents: 0 },
     ]
     const result = computeSettlement(mkInput(players))
     // p1 je vzel 20€ in vse plačal sproti, a končal na 0 → izplačilo = cashout = 0, ne negativno.
@@ -320,7 +321,11 @@ describe('computeSettlement — lastnostni (property) test', () => {
         // paidCents je vedno <= takenCents, kot v resničnosti (ne moreš plačati več kot vzameš).
         const paidCents = randInt(takenCents + 1)
         const cashoutCents = randInt(10000)
-        return { playerId, takenCents, paidCents, cashoutCents }
+        // Predčasno izplačilo omejimo na to, kar je ta igralec vplačal: tako
+        // Σ paidOut <= Σ paid, blagajna torej nikoli ne pade pod nič in
+        // ostanemo v fizično možnem stanju.
+        const paidOutCents = randInt(paidCents + 1)
+        return { playerId, takenCents, paidCents, cashoutCents, paidOutCents }
       })
 
       const sumC = sumCents(players.map((p) => p.cashoutCents))
@@ -372,9 +377,13 @@ describe('computeSettlement — lastnostni (property) test', () => {
 
       const result = computeSettlement(input)
 
+      // Blagajna je Σ P MINUS že izplačano med sejo (predčasni odhodi).
+      const expectedBox =
+        sumCents(players.map((p) => p.paidCents)) - sumCents(players.map((p) => p.paidOutCents))
+
       expect(sumCents(Object.values(result.netCents))).toBe(0)
-      expect(sumCents(Object.values(result.payoutCents))).toBe(sumCents(players.map((p) => p.paidCents)))
-      expect(result.boxCents).toBe(sumCents(players.map((p) => p.paidCents)))
+      expect(sumCents(Object.values(result.payoutCents))).toBe(expectedBox)
+      expect(result.boxCents).toBe(expectedBox)
 
       const netEffect: Record<string, number> = Object.fromEntries(ids.map((id) => [id, 0]))
       for (const t of result.transfers as Transfer[]) {

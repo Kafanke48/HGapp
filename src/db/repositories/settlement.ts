@@ -54,6 +54,9 @@ export async function computeForSession(
       takenCents: bucket.takenCents,
       paidCents: bucket.paidCents,
       cashoutCents: sp.cashoutCents,
+      // `?? 0` zaradi zapisov, nastalih pred uvedbo predčasnih izplačil —
+      // Dexie starih vrstic ne dopolni, polje tam preprosto ne obstaja.
+      paidOutCents: sp.paidOutCents ?? 0,
     }
   })
 

@@ -202,13 +202,29 @@ export function computeSettlement(input: SettlementInput): SettlementResult {
   }
 
   // --- 4. izplačila ---
-  const boxCents = sumCents(players.map((p) => p.paidCents)) // Σ P velja ne glede na način
+  //
+  // Predčasni odhodi: kdor je med sejo že vzel denar iz blagajne, ima toliko
+  // manjšo terjatev, blagajna pa toliko manj denarja. Oboje se odšteje z istim
+  // členom, zato invarianta "vsota terjatev = vsebina blagajne" ostane cela.
+  const alreadyPaidOut = sumCents(players.map((p) => p.paidOutCents))
+  const boxCents = sumCents(players.map((p) => p.paidCents)) - alreadyPaidOut
   const payout: Record<string, Cents> = {}
   for (const p of players) {
-    const paid = input.mode === 'p2p' ? 0 : p.paidCents
+    // V p2p načinu se predpostavlja prazna blagajna, zato tam ni ne vplačil
+    // vanjo ne izplačil iz nje.
+    const paid = input.mode === 'p2p' ? 0 : p.paidCents - p.paidOutCents
     payout[p.playerId] = net[p.playerId]! + paid
   }
   const p2pWithNonEmptyBox = input.mode === 'p2p' && boxCents > 0
+
+  if (input.mode === 'blagajna' && boxCents < 0) {
+    // Iz blagajne je bilo izplačano več, kot je bilo vanjo vplačano. Fizično to
+    // ni mogoče, zato gre za napako v vnosu (npr. predčasno izplačilo, vpisano
+    // višje od dejanskega). Bolje je ustaviti kot prikazati nemogoč načrt.
+    throw new ObracunNapaka(
+      `computeSettlement: iz blagajne je izplačano ${-boxCents} centov več, kot je bilo vplačano — preveri predčasna izplačila`,
+    )
+  }
 
   // --- 5. poravnalni načrt ---
   const creditors: ClaimNode[] = sortedIds

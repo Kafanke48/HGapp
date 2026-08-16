@@ -73,6 +73,8 @@ function makeSessionPlayer(overrides: Partial<SessionPlayer> = {}): SessionPlaye
     seatOrder: 0,
     cashoutCents: null,
     cashoutChipCounts: null,
+    paidOutCents: 0,
+    leftAt: null,
     version: 1,
     createdAt: now,
     updatedAt: now,

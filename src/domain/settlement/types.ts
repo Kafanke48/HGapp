@@ -19,6 +19,17 @@ export interface PlayerInput {
   paidCents: Cents
   /** C — vrednost žetonov ob koncu v centih */
   cashoutCents: Cents
+  /**
+   * Koliko denarja je igralec ŽE dobil izplačano iz blagajne med sejo.
+   *
+   * Cash game: igralci prihajajo in odhajajo. Kdor odide sredi večera, denar
+   * praviloma vzame takoj — in od tistega trenutka v blagajni ni več `Σ P`.
+   * Brez tega člena bi kontrola blagajne od prve predčasne izplačitve naprej
+   * kazala napačno vrednost.
+   *
+   * 0 pomeni, da igralec še ni dobil ničesar (običajno stanje).
+   */
+  paidOutCents: Cents
 }
 
 export type DiscrepancyMethod =
@@ -74,9 +85,12 @@ export interface SettlementResult {
   discrepancyCents: Cents
   /** neto_i = C_i − B_i po razrešitvi neskladja in po stroških. Vsota je 0. */
   netCents: Record<string, Cents>
-  /** izplačilo_i = neto_i + P_i. Vsota je enaka vsebini blagajne. */
+  /**
+   * Koliko igralcu še PRIPADA: neto_i + P_i − že izplačano_i.
+   * Vsota je enaka vsebini blagajne. 0 pomeni, da je igralec že poravnan.
+   */
   payoutCents: Record<string, Cents>
-  /** Σ P — koliko denarja naj bi bilo v blagajni. */
+  /** Σ P − Σ že izplačano — koliko denarja naj bi bilo v blagajni zdaj. */
   boxCents: Cents
   transfers: Transfer[]
   discrepancyAdjustments: Adjustment[]

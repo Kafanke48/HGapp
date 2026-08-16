@@ -69,6 +69,16 @@ export interface SessionPlayer {
   seatOrder: number
   /** C — končna vrednost žetonov. null pomeni "še ni vpisano". */
   cashoutCents: Cents | null
+  /**
+   * Koliko denarja je igralec že dobil izplačano iz blagajne MED sejo.
+   *
+   * Cash game: igralci prihajajo in odhajajo. Kdor odide sredi večera, denar
+   * praviloma vzame takoj, zato v blagajni od tistega trenutka ni več `Σ P`.
+   * 0 je običajno stanje. Stari zapisi tega polja nimajo — beri z `?? 0`.
+   */
+  paidOutCents: Cents
+  /** Kdaj je igralec zapustil mizo. null pomeni, da še igra. */
+  leftAt: number | null
   /** Surov vnos po barvah, kadar je cashoutMode 'zetoni'. Hranimo zaradi revizije. */
   cashoutChipCounts: Record<string, number> | null
   version: number
