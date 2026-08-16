@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../../db/schema.ts'
-import { listSessionPlayers } from '../../db/repositories/sessions.ts'
+import { listSessionPlayers, updateSession } from '../../db/repositories/sessions.ts'
 import { sessionTotals } from '../../db/repositories/buyins.ts'
 import { computeForSession, finalizeSettlement } from '../../db/repositories/settlement.ts'
 import { exportBackup, downloadOrShareBackup } from '../../platform/index.ts'
 import { formatEur, formatEurSigned } from '../../domain/money.ts'
-import type { DiscrepancyMethod, SettlementMode, SettlementResult, Transfer } from '../../domain/settlement/types.ts'
+import type {
+  DiscrepancyMethod,
+  ExpenseSplitMethod,
+  SettlementMode,
+  SettlementResult,
+  Transfer,
+} from '../../domain/settlement/types.ts'
 import {
   enqueue,
   formatFinalStandings,
@@ -16,6 +22,7 @@ import {
 import { useSettings } from '../hooks/useSettings.ts'
 import { Money } from '../components/Money.tsx'
 import { NeskladjeSheet, clearDiscrepancyDraft, readDiscrepancyDraft, writeDiscrepancyDraft } from '../components/NeskladjeSheet.tsx'
+import { StroskiSheet, type StroskiDraft } from '../components/StroskiSheet.tsx'
 
 /** Ključ proti podvajanju za objavo končne poravnave — glej `handlePostToGroup`. */
 function finalStandingsDedupKey(sessionId: string): string {
@@ -73,6 +80,44 @@ export function PoravnavaScreen({ sessionId, onKoncano, onNazaj }: PoravnavaScre
     readDiscrepancyDraft(sessionId),
   )
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [stroskiSheetOpen, setStroskiSheetOpen] = useState(false)
+
+  // Surovi podatki igralcev za lokalni "kaj-če" predogled v StroskiSheet — isti
+  // vhod, ki bi ga computeForSession sestavil za engine, a tu brez branja iz
+  // baze, da lahko predogled teče ob vsakem vnosu brez zapisa v sejo (glej
+  // StroskiSheet.tsx: predogled kliče computeSettlement neposredno).
+  const playersForEngine = useMemo(() => {
+    if (!sessionPlayers || !totals) return null
+    return sessionPlayers.map((sp) => ({
+      playerId: sp.playerId,
+      name: nameById.get(sp.playerId) ?? sp.playerId,
+      takenCents: totals.perPlayer[sp.playerId]?.takenCents ?? 0,
+      paidCents: totals.perPlayer[sp.playerId]?.paidCents ?? 0,
+      cashoutCents: sp.cashoutCents ?? 0,
+    }))
+  }, [sessionPlayers, totals, nameById])
+
+  // Privzeti založnik ob prvem vklopu: host te seje, ČE je udeležen kot igralec
+  // v tej seji — sicer null (uporabnik mora izbrati sam). Nikoli se ne sme
+  // zgoditi, da je expenseEnabled true brez izbranega založnika (glej nalogo
+  // in computeForSession, ki bi sicer vrgel napako).
+  const defaultExpensePayerId = useMemo(() => {
+    if (!session?.hostPlayerId || !sessionPlayers) return null
+    return sessionPlayers.some((sp) => sp.playerId === session.hostPlayerId) ? session.hostPlayerId : null
+  }, [session, sessionPlayers])
+
+  async function handleApplyStroski(draft: StroskiDraft): Promise<void> {
+    await updateSession(db, sessionId, {
+      expenseEnabled: true,
+      expenseTotalCents: draft.totalCents,
+      expenseSplitMethod: draft.method,
+      expensePaidByPlayerId: draft.paidByPlayerId,
+    })
+  }
+
+  async function handleRemoveStroski(): Promise<void> {
+    await updateSession(db, sessionId, { expenseEnabled: false })
+  }
 
   // Surova razlika Σ cashout − Σ buy-in, izračunana neposredno iz podatkov —
   // NE prek engine-a — samo zato, da vemo, ali je razrešitev sploh potrebna,
@@ -305,6 +350,8 @@ export function PoravnavaScreen({ sessionId, onKoncano, onNazaj }: PoravnavaScre
             expenseTotalCents={session.expenseTotalCents}
             expenseSplitMethod={session.expenseSplitMethod}
             expensePaidByName={session.expensePaidByPlayerId ? nameOf(session.expensePaidByPlayerId) : '—'}
+            onOpenStroskiSheet={() => setStroskiSheetOpen(true)}
+            onRemoveStroski={() => void handleRemoveStroski()}
             finalizeError={finalizeError}
           />
         )}
@@ -414,6 +461,25 @@ export function PoravnavaScreen({ sessionId, onKoncano, onNazaj }: PoravnavaScre
           onClose={() => setSheetOpen(false)}
         />
       )}
+
+      {stroskiSheetOpen && playersForEngine && (
+        <StroskiSheet
+          players={playersForEngine}
+          discrepancy={discrepancyMethod}
+          initial={
+            session.expenseEnabled
+              ? {
+                  totalCents: session.expenseTotalCents,
+                  method: session.expenseSplitMethod,
+                  paidByPlayerId: session.expensePaidByPlayerId,
+                }
+              : null
+          }
+          defaultPaidByPlayerId={defaultExpensePayerId}
+          onApply={(draft) => void handleApplyStroski(draft)}
+          onClose={() => setStroskiSheetOpen(false)}
+        />
+      )}
     </div>
   )
 }
@@ -431,8 +497,10 @@ interface PregledViewProps {
   onPreferredCreditorsChange: (updater: (prev: Record<string, string>) => Record<string, string>) => void
   expenseEnabled: boolean
   expenseTotalCents: number
-  expenseSplitMethod: 'po_glavah' | 'po_dobicku'
+  expenseSplitMethod: ExpenseSplitMethod
   expensePaidByName: string
+  onOpenStroskiSheet: () => void
+  onRemoveStroski: () => void
   finalizeError: string | null
 }
 
@@ -447,6 +515,8 @@ function PregledView({
   expenseTotalCents,
   expenseSplitMethod,
   expensePaidByName,
+  onOpenStroskiSheet,
+  onRemoveStroski,
   finalizeError,
 }: PregledViewProps) {
   const playerIds = Object.keys(result.netCents).sort((a, b) => result.netCents[b]! - result.netCents[a]!)
@@ -586,22 +656,51 @@ function PregledView({
         </div>
       </section>
 
-      {expenseEnabled && (
-        <section>
-          <p className="eyebrow">Delitev stroškov</p>
-          <div className="tile mt-2 p-4">
-            <p className="text-bone text-sm">
-              {formatEur(expenseTotalCents)} · {expenseSplitMethod === 'po_glavah' ? 'po glavah' : 'po dobičku'} ·
-              založil {expensePaidByName}
-            </p>
+      {/* Stroški — privzeto izklopljeno (spec 4.6). Ne kriči: večina sej nima
+          skupnega stroška, zato je izklopljeno stanje ena tiha vrstica. */}
+      <section>
+        <p className="eyebrow">Stroški</p>
+        {!expenseEnabled ? (
+          <button
+            type="button"
+            onClick={onOpenStroskiSheet}
+            className="border-line text-bone-dim mt-2 flex min-h-11 w-full items-center justify-between rounded-lg border border-dashed px-3 text-sm"
+          >
+            <span>Ni skupnega stroška za to sejo.</span>
+            <span className="text-bone font-medium">Dodaj</span>
+          </button>
+        ) : (
+          <div className="tile mt-2 flex flex-col gap-2 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <Money cents={expenseTotalCents} className="text-lg font-semibold" />
+              <span className="text-bone-dim text-right text-sm">
+                {expenseSplitMethod === 'po_glavah' ? 'po glavah' : 'po dobičku'} · založil {expensePaidByName}
+              </span>
+            </div>
             {result.expenseFellBackToHeadcount && (
-              <p className="text-oxblood mt-1 text-xs font-medium">
+              <p className="text-oxblood text-xs font-medium">
                 Nihče ni bil v plusu, zato je delitev "po dobičku" padla nazaj na "po glavah".
               </p>
             )}
+            <div className="mt-1 flex gap-2">
+              <button
+                type="button"
+                onClick={onOpenStroskiSheet}
+                className="border-line text-bone min-h-11 flex-1 rounded-lg border text-sm font-medium"
+              >
+                Uredi
+              </button>
+              <button
+                type="button"
+                onClick={onRemoveStroski}
+                className="border-line text-oxblood min-h-11 flex-1 rounded-lg border text-sm font-medium"
+              >
+                Odstrani
+              </button>
+            </div>
           </div>
-        </section>
-      )}
+        )}
+      </section>
     </div>
   )
 }

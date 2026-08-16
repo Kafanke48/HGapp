@@ -139,6 +139,49 @@ describe('spec 4.6 — delitev stroškov', () => {
     expect(Object.values(r.netCents).reduce((a, b) => a + b, 0)).toBe(0)
   })
 
+  it('po dobičku: kdor je v minusu, ne plača nič', () => {
+    // Buy-in 20 € vsak (Σ B = 80 €), Σ C = 80 € → brez neskladja.
+    // Neti pred stroškom: a +30, b +10, c −20, d −20.
+    const r = run(
+      [
+        player('a', 2000, 2000, 5000),
+        player('b', 2000, 2000, 3000),
+        player('c', 2000, 2000, 0),
+        player('d', 2000, 2000, 0),
+      ],
+      { expense: { totalCents: 1000, method: 'po_dobicku', paidByPlayerId: 'a' } },
+    )
+
+    // Uteži so samo pozitivni neti: 3000 in 1000, skupaj 4000.
+    // a nosi 750, b nosi 250, poražencema se ne odšteje nič.
+    expect(r.netCents['a']).toBe(3000 - 750 + 1000) // svoj delež plača, celoten znesek prejme nazaj
+    expect(r.netCents['b']).toBe(750)
+    expect(r.netCents['c']).toBe(-2000)
+    expect(r.netCents['d']).toBe(-2000)
+    expect(Object.values(r.netCents).reduce((x, y) => x + y, 0)).toBe(0)
+    expect(r.expenseFellBackToHeadcount).toBe(false)
+  })
+
+  it('po dobičku: pijačo kupi tisti, ki je izgubil — povrne se mu cel znesek', () => {
+    // Vsakdanji primer: največji poraženec gre po pijačo. Ker je v minusu,
+    // po pravilu "po dobičku" ne nosi nobenega deleža, prejme pa celoten znesek.
+    const r = run(
+      [
+        player('a', 2000, 2000, 5000),
+        player('b', 2000, 2000, 3000),
+        player('c', 2000, 2000, 0),
+        player('d', 2000, 2000, 0),
+      ],
+      { expense: { totalCents: 1000, method: 'po_dobicku', paidByPlayerId: 'c' } },
+    )
+
+    expect(r.netCents['c']).toBe(-2000 + 1000) // delež 0, povračilo 1000
+    expect(r.netCents['a']).toBe(2250)
+    expect(r.netCents['b']).toBe(750)
+    expect(r.netCents['d']).toBe(-2000)
+    expect(Object.values(r.netCents).reduce((x, y) => x + y, 0)).toBe(0)
+  })
+
   it('po dobičku brez zmagovalcev pade nazaj na po glavah in to javi', () => {
     const players = Array.from({ length: 3 }, (_, i) => player(`igralec-${i}`, 2000, 2000, 2000))
     const r = run(players, {
