@@ -9,6 +9,7 @@ import {
   findLinkCandidates,
   getMe,
   getUpdates,
+  sendMessage,
   linkPlayer,
   realTelegramTransport,
   unlinkPlayer,
@@ -101,6 +102,36 @@ export function NastavitveScreen() {
       setChatIdDraft(null)
     } finally {
       setSavingChatId(false)
+    }
+  }
+
+  // --- Preizkusno sporočilo v skupino ---------------------------------------
+  //
+  // Brez tega je odpoved pošiljanja v skupino popolnoma nema: sporočilo pristane
+  // v vrsti, tam obtiči, uporabnik pa ne izve, ali je narobe ID skupine, ali bot
+  // ni član, ali kaj tretjega. Ta gumb pošlje TAKOJ, mimo vrste, in izpiše
+  // natanko to, kar odgovori Telegram.
+  const [groupTest, setGroupTest] = useState<
+    { status: 'idle' | 'posiljam' } | { status: 'ok' } | { status: 'napaka'; message: string }
+  >({ status: 'idle' })
+
+  async function handleTestGroupMessage() {
+    const token = savedToken
+    const chatId = settings?.telegramGroupChatId
+    if (!token || !chatId) return
+    setGroupTest({ status: 'posiljam' })
+    try {
+      const res = await sendMessage(realTelegramTransport, token, {
+        chat_id: chatId,
+        text: 'HGapp: preizkusno sporočilo. Če to vidiš, povezava s skupino deluje.',
+      })
+      if (res.ok) {
+        setGroupTest({ status: 'ok' })
+      } else {
+        setGroupTest({ status: 'napaka', message: withoutToken(res.description, token) })
+      }
+    } catch {
+      setGroupTest({ status: 'napaka', message: 'Telefon ni mogel doseči Telegrama.' })
     }
   }
 
@@ -357,6 +388,39 @@ export function NastavitveScreen() {
             </Button>
           </div>
         </label>
+
+        {/* Preizkus skupine je ločen od preizkusa žetona: žeton je lahko
+            popolnoma pravilen, pa sporočilo v skupino vseeno ne gre (napačen
+            ID, bot ni član, skupina je bila nadgrajena v supergrupo in ima nov
+            ID). Brez tega gumba je odpoved nema. */}
+        <div>
+          <Button
+            fullWidth
+            onClick={() => void handleTestGroupMessage()}
+            disabled={
+              !savedToken || !settings?.telegramGroupChatId || groupTest.status === 'posiljam'
+            }
+          >
+            {groupTest.status === 'posiljam' ? 'Pošiljam …' : 'Pošlji preizkusno sporočilo v skupino'}
+          </Button>
+          {groupTest.status === 'ok' && (
+            <p className="text-jade mt-2 text-[0.8125rem]">
+              Poslano. Poglej v skupino — če sporočila tam ni, si vpisal ID druge skupine.
+            </p>
+          )}
+          {groupTest.status === 'napaka' && (
+            <p className="text-oxblood mt-2 text-[0.8125rem]">
+              Telegram je zavrnil: {groupTest.message}
+              {groupTest.message.toLowerCase().includes('chat not found') && (
+                <>
+                  {' '}
+                  Najpogostejši vzrok: ID ni prepisan v celoti (mora se začeti z minusom) ali bot ni
+                  član te skupine.
+                </>
+              )}
+            </p>
+          )}
+        </div>
 
         <div>
           <Button fullWidth onClick={() => void handleCheckConnection()} disabled={!tokenForCheck || checkState.status === 'preverjam'}>
