@@ -64,6 +64,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   telegramBotToken: null,
   telegramGroupChatId: null,
   telegramOffset: 0,
+  telegramSeenGroups: [],
   lastBackupAt: null,
   installGuardAcknowledgedAt: null,
   schemaVersion: SCHEMA_VERSION,

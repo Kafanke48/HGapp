@@ -8,6 +8,7 @@ import {
   handleCallbackQuery,
   handleMessage,
   realTelegramTransport,
+  recordSeenGroup,
 } from '../../telegram/index.ts'
 
 export interface TelegramRuntimeStatus {
@@ -133,7 +134,14 @@ export function useTelegramRuntime(activeSessionId: string | null): TelegramRunt
       realTelegramTransport,
       {
         onCallbackQuery: (ctx, callbackQuery) => handleCallbackQuery(ctx.db, callbackQuery),
-        onMessage: (ctx, message) => handleMessage(ctx.db, message),
+        onMessage: async (ctx, message) => {
+          // Vsako sporočilo iz skupine si zapomnimo, da uporabniku ID skupine
+          // ni treba ročno prepisovati (glej telegram/groups.ts). Poslušalec
+          // posodobitve tako ali tako pobere prvi, zato je to edino mesto,
+          // kjer jih je še mogoče ujeti.
+          await recordSeenGroup(ctx.db, message)
+          await handleMessage(ctx.db, message)
+        },
       },
       {
         onError: (err) => {

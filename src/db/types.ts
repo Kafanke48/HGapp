@@ -214,6 +214,11 @@ export interface AppSettings {
   telegramGroupChatId: string | null
   /** Zadnji obdelan update_id iz getUpdates. */
   telegramOffset: number
+  /**
+   * Skupine, iz katerih je bot kaj slišal — da uporabniku ni treba ročno
+   * prepisovati ID-ja skupine (glej telegram/groups.ts).
+   */
+  telegramSeenGroups: { chatId: string; title: string }[]
   lastBackupAt: number | null
   installGuardAcknowledgedAt: number | null
   schemaVersion: number

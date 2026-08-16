@@ -202,6 +202,7 @@ function makeOutbox(overrides: Partial<OutboxItem> = {}): OutboxItem {
 function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
   return {
     id: 'singleton',
+    telegramSeenGroups: [],
     hostPlayerId: 'p1',
     defaultBuyInCents: 2000,
     buyInPresetsCents: [1000, 2000, 5000],

@@ -105,6 +105,10 @@ export function NastavitveScreen() {
     }
   }
 
+  // Skupine, ki jih je bot že slišal — brano živo, da se pojavijo takoj, ko
+  // uporabnik v skupini kaj napiše, brez ponovnega odpiranja zaslona.
+  const seenGroups = settings?.telegramSeenGroups ?? []
+
   // --- Preizkusno sporočilo v skupino ---------------------------------------
   //
   // Brez tega je odpoved pošiljanja v skupino popolnoma nema: sporočilo pristane
@@ -388,6 +392,41 @@ export function NastavitveScreen() {
             </Button>
           </div>
         </label>
+
+        {/* Zaznane skupine: ID skupine je edini podatek, ki ga je treba ročno
+            prepisati, in prav tam se najlažje zmoti. Odkar poslušalec teče,
+            posodobitve pobere on, zato jih uporabnik v getUpdates v brskalniku
+            sploh ne vidi več — te si zato zapomnimo (glej telegram/groups.ts). */}
+        {seenGroups.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <span className="text-bone-faint text-[0.6875rem]">Zaznane skupine</span>
+            {seenGroups.map((g) => {
+              const selected = settings?.telegramGroupChatId === g.chatId
+              return (
+                <button
+                  key={g.chatId}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => void updateSettings(db, { telegramGroupChatId: g.chatId })}
+                  className={`flex min-h-11 items-center justify-between rounded-lg px-3.5 text-left ${
+                    selected ? 'bg-bone text-night' : 'border-line text-bone border'
+                  }`}
+                >
+                  <span className="truncate text-[0.875rem] font-medium">{g.title}</span>
+                  <span className="num ml-3 shrink-0 text-[0.75rem] opacity-70">{g.chatId}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {seenGroups.length === 0 && savedToken && (
+          <p className="text-bone-faint text-[0.8125rem] leading-relaxed">
+            Še nobene zaznane skupine. Dodaj bota v skupino in tam napiši{' '}
+            <span className="text-bone-dim">/stanje@ImeBota</span> — ko aplikacija to sliši, se
+            skupina pojavi tukaj in ti ID ne bo treba prepisovati.
+          </p>
+        )}
 
         {/* Preizkus skupine je ločen od preizkusa žetona: žeton je lahko
             popolnoma pravilen, pa sporočilo v skupino vseeno ne gre (napačen
