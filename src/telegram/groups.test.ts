@@ -1,7 +1,12 @@
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { HGappDB } from '../db/schema.ts'
-import { listSeenGroups, recordSeenGroup } from './groups.ts'
+import {
+  listSeenGroups,
+  listUnlinkedSeenUsers,
+  recordSeenGroup,
+  recordSeenUser,
+} from './groups.ts'
 import type { TelegramMessage } from './types.ts'
 
 function msg(
@@ -66,5 +71,44 @@ describe('zaznavanje skupin', () => {
   it('skupina brez imena dobi razumljivo oznako, ne prazne vrstice', async () => {
     await recordSeenGroup(db, msg({ id: -55, type: 'group' }))
     expect((await listSeenGroups(db))[0]?.title).toBe('Skupina brez imena')
+  })
+})
+
+describe('zaznavanje pošiljateljev za povezovanje', () => {
+  let db: HGappDB
+
+  beforeEach(() => {
+    db = new HGappDB('test-users-' + crypto.randomUUID())
+  })
+  afterEach(async () => {
+    await db.delete()
+  })
+
+  it('zapomni si pošiljatelja, tudi iz zasebnega klepeta', async () => {
+    await recordSeenUser(db, msg({ id: 555, type: 'private' }))
+    expect(await listUnlinkedSeenUsers(db)).toEqual([
+      { tgUserId: '7', tgUsername: null, firstName: 'Miha' },
+    ])
+  })
+
+  it('botov ne beleži', async () => {
+    const m = msg({ id: 555, type: 'private' })
+    m.from = { id: 99, is_bot: true, first_name: 'NekBot' }
+    await recordSeenUser(db, m)
+    expect(await listUnlinkedSeenUsers(db)).toEqual([])
+  })
+
+  it('že povezanega igralca ne ponuja več', async () => {
+    await recordSeenUser(db, msg({ id: 555, type: 'private' }))
+    await db.players.add({
+      id: 'p1',
+      name: 'Miha',
+      telegramUserId: '7',
+      telegramUsername: null,
+      archived: false,
+      createdAt: 0,
+      updatedAt: 0,
+    })
+    expect(await listUnlinkedSeenUsers(db)).toEqual([])
   })
 })

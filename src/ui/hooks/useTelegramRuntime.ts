@@ -9,6 +9,7 @@ import {
   handleMessage,
   realTelegramTransport,
   recordSeenGroup,
+  recordSeenUser,
 } from '../../telegram/index.ts'
 
 export interface TelegramRuntimeStatus {
@@ -140,6 +141,7 @@ export function useTelegramRuntime(activeSessionId: string | null): TelegramRunt
           // posodobitve tako ali tako pobere prvi, zato je to edino mesto,
           // kjer jih je še mogoče ujeti.
           await recordSeenGroup(ctx.db, message)
+          await recordSeenUser(ctx.db, message)
           await handleMessage(ctx.db, message)
         },
       },

@@ -7,6 +7,7 @@ import {
   discardOutboxItem,
   enqueue,
   findLinkCandidates,
+  listUnlinkedSeenUsers,
   getMe,
   getUpdates,
   sendMessage,
@@ -198,8 +199,15 @@ export function NastavitveScreen() {
       // NAMERNO: telegramOffset tu NE posodobimo. To je enkraten pregled, ne
       // obdelava — poller (ko bo sejaaktivna) mora te iste posodobitve še
       // vedno videti, da jih dejansko obdela (potrditve, odgovori na zavrnitev).
-      const found = await findLinkCandidates(db, res.result)
-      setCandidates(found)
+      // Zdruzimo dvoje: kar je v tem trenutku se v getUpdates, IN kar si je
+      // poslusalec ze zapomnil. Poslusalec posodobitve pobere prvi in premakne
+      // kazalec, zato bi sicer igralec, ki je pritisnil Start ob odprti
+      // aplikaciji, ostal nevidljiv za vedno (glej telegram/groups.ts).
+      const fresh = await findLinkCandidates(db, res.result)
+      const remembered = await listUnlinkedSeenUsers(db)
+      const byId = new Map(remembered.map((u) => [u.tgUserId, u]))
+      for (const c of fresh) byId.set(c.tgUserId, c)
+      setCandidates([...byId.values()])
       setFindState({ status: 'done' })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Neznana napaka omrežja.'

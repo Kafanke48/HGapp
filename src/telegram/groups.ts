@@ -55,3 +55,58 @@ export async function listSeenGroups(db: HGappDB): Promise<SeenGroup[]> {
   const settings = await getSettings(db)
   return settings.telegramSeenGroups ?? []
 }
+
+export interface SeenUser {
+  tgUserId: string
+  tgUsername: string | null
+  /** Nullable zaradi ujemanja z `LinkCandidate` — vmesnik ju zdruzuje v en seznam. */
+  firstName: string | null
+}
+
+const MAX_SEEN_USERS = 20
+
+/**
+ * Zapomni si pošiljatelja, da ga je mogoče povezati z igralcem tudi kasneje.
+ *
+ * Nujno zato, ker poslušalec teče, dokler je aplikacija odprta, in posodobitve
+ * pobere PRVI — s tem premakne kazalec branja. Igralec, ki pritisne Start
+ * takrat, bi bil za "Poišči nove" nevidljiv za vedno, ker `getUpdates` istega
+ * sporočila ne vrne dvakrat.
+ *
+ * Botov ne beležimo. Vrne `true`, kadar je bil seznam spremenjen.
+ */
+export async function recordSeenUser(db: HGappDB, message: TelegramMessage): Promise<boolean> {
+  const from = message.from
+  if (!from || from.is_bot) return false
+
+  const tgUserId = String(from.id)
+  const tgUsername = from.username ?? null
+  const firstName: string | null = from.first_name ?? null
+
+  const settings = await getSettings(db)
+  const existing = settings.telegramSeenUsers ?? []
+
+  const already = existing.find((u) => u.tgUserId === tgUserId)
+  if (already && already.tgUsername === tgUsername && already.firstName === firstName) return false
+
+  const next: SeenUser[] = [
+    { tgUserId, tgUsername, firstName },
+    ...existing.filter((u) => u.tgUserId !== tgUserId),
+  ].slice(0, MAX_SEEN_USERS)
+
+  await updateSettings(db, { telegramSeenUsers: next })
+  return true
+}
+
+/** Zaznani pošiljatelji, ki še niso povezani z nobenim igralcem. */
+export async function listUnlinkedSeenUsers(db: HGappDB): Promise<SeenUser[]> {
+  const settings = await getSettings(db)
+  const seen = settings.telegramSeenUsers ?? []
+  if (seen.length === 0) return []
+
+  const players = await db.players.toArray()
+  const linked = new Set(
+    players.map((p) => p.telegramUserId).filter((id): id is string => id !== null),
+  )
+  return seen.filter((u) => !linked.has(u.tgUserId))
+}

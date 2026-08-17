@@ -203,6 +203,7 @@ function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
   return {
     id: 'singleton',
     telegramSeenGroups: [],
+    telegramSeenUsers: [],
     hostPlayerId: 'p1',
     defaultBuyInCents: 2000,
     buyInPresetsCents: [1000, 2000, 5000],

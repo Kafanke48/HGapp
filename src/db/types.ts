@@ -219,6 +219,11 @@ export interface AppSettings {
    * prepisovati ID-ja skupine (glej telegram/groups.ts).
    */
   telegramSeenGroups: { chatId: string; title: string }[]
+  /**
+   * Pošiljatelji, ki jih je bot slisal — da povezovanje igralcev deluje tudi,
+   * ko poslusalec posodobitve pobere prvi (glej telegram/groups.ts).
+   */
+  telegramSeenUsers: { tgUserId: string; tgUsername: string | null; firstName: string | null }[]
   lastBackupAt: number | null
   installGuardAcknowledgedAt: number | null
   schemaVersion: number
